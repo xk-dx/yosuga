@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
+from typing import List, Tuple
+
+from yusuga.config.paths import default_project_root
+
+
+@dataclass
+class PromptBuildResult:
+    prompt: str
+    fixed_prefix: str
+    prompt_hash: str
+    sources: List[str]
+
+
+class InstructionComposer:
+    """Compose system prompt from engineering instruction assets."""
+
+    CORE_ORDER = ["identity", "behavior", "tooling", "tone", "safety"]
+
+    def __init__(self, project_root: Path, workspace_root: Path, role: str = "lead"):
+        self.project_root = project_root
+        self.workspace_root = workspace_root
+        self.role = role.strip().lower() or "lead"
+        self.instructions_root = self.project_root / "instructions"
+
+    def compose(self) -> PromptBuildResult:
+        blocks: List[str] = []
+        sources: List[str] = []
+
+        core_blocks, core_sources = self._load_core_blocks()
+        blocks.extend(core_blocks)
+        sources.extend(core_sources)
+
+        role_block, role_source = self._load_role_block(self.role)
+        if role_block:
+            blocks.append(role_block)
+            sources.append(role_source)
+
+        project_block, project_source = self._load_project_policy()
+        if project_block:
+            blocks.append(project_block)
+            sources.append(project_source)
+
+        workspace_block, workspace_source = self._load_workspace_policy()
+        if workspace_block:
+            blocks.append(workspace_block)
+            sources.append(workspace_source)
+
+        runtime_block = self._build_runtime_workspace_block()
+        if runtime_block:
+            blocks.append(runtime_block)
+            sources.append("runtime:workspace-root")
+
+        fixed_prefix = "\n\n".join(blocks).strip()
+        prompt_hash = sha256(fixed_prefix.encode("utf-8")).hexdigest() if fixed_prefix else ""
+        return PromptBuildResult(
+            prompt=fixed_prefix,
+            fixed_prefix=fixed_prefix,
+            prompt_hash=prompt_hash,
+            sources=sources,
+        )
+
+    def _load_core_blocks(self) -> Tuple[List[str], List[str]]:
+        blocks: List[str] = []
+        sources: List[str] = []
+        for name in self.CORE_ORDER:
+            path = self.instructions_root / "core" / f"{name}.md"
+            text = self._read_text_if_exists(path)
+            if text:
+                blocks.append(text)
+                sources.append(str(path))
+        return blocks, sources
+
+    def _load_role_block(self, role: str) -> Tuple[str, str]:
+        path = self.instructions_root / "roles" / f"{role}.md"
+        text = self._read_text_if_exists(path)
+        if text:
+            return text, str(path)
+
+        fallback = self.instructions_root / "roles" / "lead.md"
+        fallback_text = self._read_text_if_exists(fallback)
+        return fallback_text, str(fallback) if fallback_text else ""
+
+    def _load_project_policy(self) -> Tuple[str, str]:
+        path = self.project_root / "YUSUGA.md"
+        text = self._read_text_if_exists(path)
+        return (text, str(path)) if text else ("", "")
+
+    def _load_workspace_policy(self) -> Tuple[str, str]:
+        # Workspace policy is similar to CLAUDE.md semantics: repo-local behavior rules.
+        candidates = [
+            self.workspace_root / "yusuga.md",
+            self.workspace_root / "YUSUGA.md",
+            self.workspace_root / "CLAUDE.md",
+        ]
+
+        project_policy_path = (self.project_root / "YUSUGA.md").resolve()
+        for path in candidates:
+            if not path.exists() or not path.is_file():
+                continue
+
+            resolved = path.resolve()
+            if resolved == project_policy_path:
+                continue
+
+            text = self._read_text_if_exists(path)
+            if text:
+                header = "# Workspace Policy (from workspace_root)\n\n"
+                return (header + text, str(path))
+
+        return ("", "")
+
+    def _build_runtime_workspace_block(self) -> str:
+        return (
+            "# Runtime Workspace\n\n"
+            f"- project_root: {self.project_root}\n"
+            f"- workspace_root: {self.workspace_root}\n"
+            "- Use workspace_root as the only writable code area for tool operations."
+        )
+
+    @staticmethod
+    def _read_text_if_exists(path: Path) -> str:
+        if not path.exists() or not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8").strip()
+
+
+def load_engineered_system_prompt(workspace_root: Path | None = None) -> PromptBuildResult:
+    project_root = default_project_root()
+    resolved_workspace = workspace_root or Path(os.getenv("YUSUGA_WORKSPACE_ROOT", "") or Path.cwd())
+    resolved_workspace = resolved_workspace.resolve()
+    role = os.getenv("AGENT_ROLE", "lead")
+    composer = InstructionComposer(
+        project_root=project_root,
+        workspace_root=resolved_workspace,
+        role=role,
+    )
+    return composer.compose()
