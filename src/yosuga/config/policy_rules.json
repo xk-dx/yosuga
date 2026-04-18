@@ -20,12 +20,7 @@
         "max_lines_without_approval": 1000
     },
     "list_dir": {
-        "root_like_paths": [
-            ".",
-            "",
-            "/",
-            "\\\\"
-        ]
+        "root_like_paths": []
     },
     "audit": {
         "log_relative_path": ".yosuga/policy_audit.jsonl"

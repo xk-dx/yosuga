@@ -1,6 +1,6 @@
 # yosuga
 
-`yosuga` is a minimal AI coding runtime for the workspace in this repository. It provides a CLI agent loop, model backends, tool execution, policy control, session logging, turn reports, and a skills system that injects metadata into the system prompt.
+`yosuga` is a minimal AI coding agent running for the workspace in this repository. It provides a CLI agent loop, model backends, tool execution, policy control, session logging, turn reports, and a skills system that injects metadata into the system prompt.
 
 中文说明请见 [README.zh.md](README.zh.md).
 

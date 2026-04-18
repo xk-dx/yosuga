@@ -2,8 +2,7 @@ import time
 from typing import Any, Callable, Dict, List
 
 from yosuga.config.session_log import SessionLogger
-from yosuga.core.types import ToolCall, ToolPolicyDecision
-from yosuga.core.types import ModelResponse
+from yosuga.core.types import ModelResponse, ToolCall, ToolPolicyDecision
 from yosuga.runtime.report import TurnReportWriter
 from yosuga.tools.runtime import ToolRegistry
 
@@ -19,7 +18,7 @@ class AgentKernel:
         self,
         model: Any,
         tools: ToolRegistry,
-        max_iters: int = 8,
+        max_iters: int = 20,
         approval_hook: ApprovalHook | None = None,
         session_logger: SessionLogger | None = None,
         report_writer: TurnReportWriter | None = None,
@@ -69,10 +68,7 @@ class AgentKernel:
             )
 
             if on_event and response.text and response.tool_calls:
-                text_preview = response.text.strip().replace("\n", " ")
-                if len(text_preview) > 240:
-                    text_preview = text_preview[:240] + "..."
-                on_event(f"[model:text] {text_preview}")
+                on_event(response.text)
 
             if self.session_logger:
                 self.session_logger.log(
@@ -88,10 +84,7 @@ class AgentKernel:
                 )
 
             if on_event and response.tool_validation_errors:
-                on_event(
-                    "[model:validation] "
-                    + " | ".join(response.tool_validation_errors)
-                )
+                on_event("[model:validation] " + " | ".join(response.tool_validation_errors))
 
             if response.tool_calls:
                 if on_event:
@@ -112,11 +105,7 @@ class AgentKernel:
                     assistant_msg["reasoning_content"] = response.reasoning_content
                 history.append(assistant_msg)
             else:
-                if on_event:
-                    on_event("[model] final response ready")
                 history.append({"role": "assistant", "content": response.text})
-
-            if not response.tool_calls:
                 self._write_turn_report(
                     turn_id=turn_id,
                     user_input=user_input,
@@ -147,8 +136,7 @@ class AgentKernel:
             for call in response.tool_calls:
                 tool_calls += 1
                 if on_event:
-                    input_keys = ", ".join(sorted(call.input.keys())) if call.input else "(no args)"
-                    on_event(f"[tool] call {call.name} args={input_keys}")
+                    on_event(f"[tool] call {call.name} args={call.input!r}")
 
                 if self.session_logger:
                     self.session_logger.log(
@@ -167,6 +155,7 @@ class AgentKernel:
                 else:
                     tool_failures += 1
                 tool_retries += int(result.meta.get("retry_count", 0) or 0)
+
                 if result.ok:
                     content = result.content
                 else:
@@ -186,13 +175,8 @@ class AgentKernel:
                             "ok": result.ok,
                             "error": result.error or "",
                             "meta": result.meta,
-                            "content": content,
                         },
                     )
-
-                if on_event:
-                    status = "ok" if result.ok else "error"
-                    on_event(f"[tool] result {result.meta.get('name', call.name)} => {status}")
 
                 tool_results_payload.append(
                     {
@@ -201,7 +185,6 @@ class AgentKernel:
                         "name": result.meta.get("name", call.name),
                         "ok": result.ok,
                         "content": content,
-                        "meta": result.meta,
                     }
                 )
 

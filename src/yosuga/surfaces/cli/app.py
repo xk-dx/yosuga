@@ -15,18 +15,56 @@ from yosuga.runtime.report import TurnReportWriter
 from yosuga.tools.runtime import build_default_registry
 
 
+class _Color:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+
+
+_COLOR_ENABLED = False
+
+
+def _init_color() -> None:
+    global _COLOR_ENABLED
+    if not sys.stdout.isatty():
+        _COLOR_ENABLED = False
+        return
+
+    # Best effort on Windows terminals; safe no-op elsewhere.
+    try:
+        from colorama import just_fix_windows_console
+
+        just_fix_windows_console()
+    except Exception:
+        pass
+
+    _COLOR_ENABLED = True
+
+
+def _paint(text: str, color: str) -> str:
+    if not _COLOR_ENABLED:
+        return text
+    return f"{color}{text}{_Color.RESET}"
+
+
 def _print_welcome() -> None:
     width = 64
-    print("=" * width)
-    print("yosuga Minimal Kernel".center(width))
-    print("AI Coding Runtime".center(width))
-    print("-" * width)
+    print(_paint("=" * width, _Color.CYAN))
+    print(_paint("yosuga Minimal Kernel".center(width), _Color.BOLD + _Color.CYAN))
+    print(_paint("AI Coding Runtime".center(width), _Color.CYAN))
+    print(_paint("-" * width, _Color.CYAN))
     print("                     ᡴ ◜ ͡ ͡ ͡ ╮⑅つ")
     print("                     ꒰ ◞ ˔ ◟ ꒱")
     print("                     ╰- ⠀ ⑅ ⠀-╯ ⸝⸝⸝⸝ ) ഒ")
     print("                     ૮ ૮◟ _ ノと⠀ ⠀ ⊹⠀ ྀི")
-    print("Commands: /help  |  exit / quit / q")
-    print("=" * width)
+    print(_paint("Commands: /help  |  exit / quit / q", _Color.DIM))
+    print(_paint("=" * width, _Color.CYAN))
 
 
 def _print_runtime_summary(
@@ -36,27 +74,36 @@ def _print_runtime_summary(
     session_log_path: Path,
     session_report_path: Path,
 ) -> None:
-    print("Runtime")
-    print(f"  Project root : {project_root}")
-    print(f"  Workspace    : {workspace_root}")
-    print(f"  Session id   : {session_id}")
-    print(f"  Session log  : {session_log_path}")
-    print(f"  Session report: {session_report_path}")
+    print(_paint("Runtime", _Color.BOLD + _Color.BLUE))
+    print(_paint(f"  Project root : {project_root}", _Color.BLUE))
+    print(_paint(f"  Workspace    : {workspace_root}", _Color.BLUE))
+    print(_paint(f"  Session id   : {session_id}", _Color.BLUE))
+    print(_paint(f"  Session log  : {session_log_path}", _Color.BLUE))
+    print(_paint(f"  Session report: {session_report_path}", _Color.BLUE))
     print()
 
 
 def _event_printer(msg: str) -> None:
+    if msg.startswith("[tool]"):
+        print(_paint(msg, _Color.YELLOW))
+        return
+    if msg.startswith("[model"):
+        print(_paint(msg, _Color.CYAN))
+        return
+    if msg.startswith("[policy]"):
+        print(_paint(msg, _Color.MAGENTA))
+        return
     print(msg)
 
 
 def _approval_prompt(call: ToolCall, decision: ToolPolicyDecision) -> bool:
-    print("[policy] Tool call needs confirmation")
-    print(f"[policy] tool={call.name}")
+    print(_paint("[policy] Tool call needs confirmation", _Color.MAGENTA))
+    print(_paint(f"[policy] tool={call.name}", _Color.MAGENTA))
     if decision.reason:
-        print(f"[policy] reason={decision.reason}")
+        print(_paint(f"[policy] reason={decision.reason}", _Color.MAGENTA))
     if decision.suggestion:
-        print(f"[policy] suggestion={decision.suggestion}")
-    ans = input("[policy] Continue? [y/N]: ").strip().lower()
+        print(_paint(f"[policy] suggestion={decision.suggestion}", _Color.MAGENTA))
+    ans = input(_paint("[policy] Continue? [y/N]: ", _Color.BOLD + _Color.MAGENTA)).strip().lower()
     return ans in {"y", "yes"}
 
 
@@ -67,51 +114,52 @@ def _build_model(backend: str | None = None):
     if backend == "anthropic":
         try:
             model = load_anthropic_from_env()
-            print("Model backend: Anthropic")
-            print(f"Model: {os.getenv('ANTHROPIC_MODEL')}")
+            print(_paint("Model backend: Anthropic", _Color.GREEN))
+            print(_paint(f"Model: {os.getenv('ANTHROPIC_MODEL')}", _Color.GREEN))
             return model
         except Exception as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+            print(_paint(f"Error: {exc}", _Color.RED), file=sys.stderr)
             sys.exit(1)
 
     if backend == "openai":
         try:
             model = load_openai_from_env()
-            print("Model backend: OpenAI")
-            print(f"Model: {os.getenv('OPENAI_MODEL')}")
+            print(_paint("Model backend: OpenAI", _Color.GREEN))
+            print(_paint(f"Model: {os.getenv('OPENAI_MODEL')}", _Color.GREEN))
             return model
         except Exception as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+            print(_paint(f"Error: {exc}", _Color.RED), file=sys.stderr)
             sys.exit(1)
 
     if backend == "mock":
-        print("Model backend: MockModel")
+        print(_paint("Model backend: MockModel", _Color.GREEN))
         return MockModel()
 
     if all(os.getenv(k, "").strip() for k in anthropic_keys):
         try:
             model = load_anthropic_from_env()
-            print("Model backend: Anthropic")
-            print(f"Model: {os.getenv('ANTHROPIC_MODEL')}")
+            print(_paint("Model backend: Anthropic", _Color.GREEN))
+            print(_paint(f"Model: {os.getenv('ANTHROPIC_MODEL')}", _Color.GREEN))
             return model
         except Exception as exc:
-            print(f"Failed to initialize Anthropic model: {exc}")
+            print(_paint(f"Failed to initialize Anthropic model: {exc}", _Color.RED))
 
     if all(os.getenv(k, "").strip() for k in openai_keys):
         try:
             model = load_openai_from_env()
-            print("Model backend: OpenAI")
-            print(f"Model: {os.getenv('OPENAI_MODEL')}")
+            print(_paint("Model backend: OpenAI", _Color.GREEN))
+            print(_paint(f"Model: {os.getenv('OPENAI_MODEL')}", _Color.GREEN))
             return model
         except Exception as exc:
-            print(f"Failed to initialize OpenAI model: {exc}")
+            print(_paint(f"Failed to initialize OpenAI model: {exc}", _Color.RED))
 
-    print("Model backend: MockModel (fallback)")
-    print("Usage: python main.py --model [anthropic|openai|mock]")
+    print(_paint("Model backend: MockModel (fallback)", _Color.YELLOW))
+    print(_paint("Usage: python main.py --model [anthropic|openai|mock]", _Color.DIM))
     return MockModel()
 
 
 def main() -> None:
+    _init_color()
     parser = argparse.ArgumentParser(description="yosuga Agent Kernel")
     parser.add_argument(
         "--model",
@@ -174,20 +222,20 @@ def main() -> None:
 
     while True:
         try:
-            query = input("yosuga> ").strip()
+            query = input(_paint("yosuga> ", _Color.BOLD + _Color.CYAN)).strip()
         except (EOFError, KeyboardInterrupt):
             session_logger.log("session_end", {"reason": "keyboard_interrupt_or_eof"})
-            print("\nbye")
+            print(_paint("\nbye", _Color.DIM))
             break
 
         if query.lower() in ("q", "quit", "exit"):
             session_logger.log("session_end", {"reason": "user_exit"})
-            print("bye")
+            print(_paint("bye", _Color.DIM))
             break
 
         if not query:
             continue
 
         answer = kernel.run_turn(query, history, on_event=_event_printer)
-        print(answer)
+        print(_paint(answer, _Color.GREEN))
         print()
