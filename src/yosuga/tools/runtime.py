@@ -13,8 +13,9 @@ from yosuga.core.types import ToolCall, ToolPolicyDecision, ToolResult
 from yosuga.tools.policy import ToolPolicyEngine
 
 
-ToolHandler = Callable[..., str]
-ApprovalHandler = Callable[[ToolCall, ToolPolicyDecision], bool]
+ToolHandler = Callable[..., Any]
+ApprovalHandler = Callable[[ToolCall, ToolPolicyDecision, str], bool]
+EventHandler = Callable[[str], None]
 
 
 class ToolRegistry:
@@ -40,6 +41,12 @@ class ToolRegistry:
         self._last_call_fingerprint: Optional[str] = None
         self._tool_fail_streak: Dict[str, int] = {}
         self._tool_circuit_open_until: Dict[str, float] = {}
+
+    def set_mutation_mode(self, mode: str) -> None:
+        self._policy_engine.set_mutation_mode(mode)
+
+    def get_mutation_mode(self) -> str:
+        return self._policy_engine.get_mutation_mode()
 
     def _audit(
         self,
@@ -123,8 +130,79 @@ class ToolRegistry:
     def _policy_for(self, call: ToolCall) -> ToolPolicyDecision:
         return self._policy_engine.decide(call)
 
-    def execute(self, call: ToolCall, approve: Optional[ApprovalHandler] = None) -> ToolResult:
+    def _build_approval_preview(self, call: ToolCall) -> str:
+        if call.name == "write_file":
+            path = str(call.input.get("path", ""))
+            content = str(call.input.get("content", ""))
+            overwrite = bool(call.input.get("overwrite", False))
+            target = self.safe_path(path)
+
+            if target.exists() and not overwrite:
+                return "Target file already exists and overwrite is disabled."
+
+            existed_before = target.exists()
+            before_text = target.read_text(encoding="utf-8", errors="replace") if existed_before else ""
+            from_label = f"a/{path}" if existed_before else "/dev/null"
+            to_label = f"b/{path}"
+            diff_lines = list(
+                difflib.unified_diff(
+                    before_text.splitlines(keepends=True),
+                    content.splitlines(keepends=True),
+                    fromfile=from_label,
+                    tofile=to_label,
+                    lineterm="",
+                )
+            )
+            diff_text = "\n".join(diff_lines).strip() or "(no diff)"
+            summary = f"Wrote {len(content)} characters to {target.name}"
+            return f"{summary}\n\n[diff]\n{diff_text}"
+
+        if call.name == "edit_file":
+            path = str(call.input.get("path", ""))
+            old_text = str(call.input.get("old_text", ""))
+            new_text = str(call.input.get("new_text", ""))
+            replace_all = bool(call.input.get("replace_all", False))
+            target = self.safe_path(path)
+
+            if not target.exists() or not target.is_file():
+                return f"Not a file: {path}"
+
+            original = target.read_text(encoding="utf-8", errors="replace")
+            if old_text not in original:
+                return "Old text not found in file"
+
+            if replace_all:
+                updated = original.replace(old_text, new_text)
+                replaced_count = original.count(old_text)
+            else:
+                updated = original.replace(old_text, new_text, 1)
+                replaced_count = 1
+
+            diff_lines = list(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    updated.splitlines(keepends=True),
+                    fromfile=f"a/{path}",
+                    tofile=f"b/{path}",
+                    lineterm="",
+                )
+            )
+            diff_text = "\n".join(diff_lines).strip() or "(no diff)"
+            summary = f"Replaced {replaced_count} occurrence(s) in {target.name}"
+            return f"{summary}\n\n[diff]\n{diff_text}"
+
+        return ""
+
+    def execute(
+        self,
+        call: ToolCall,
+        approve: Optional[ApprovalHandler] = None,
+        on_event: Optional[EventHandler] = None,
+    ) -> ToolResult:
         fingerprint = self._fingerprint_call(call)
+        is_mutation_call = call.name in {"write_file", "edit_file"}
+        mutation_preview = ""
+
         if self._last_call_fingerprint == fingerprint:
             duplicate_decision = ToolPolicyDecision(
                 action="block",
@@ -167,7 +245,11 @@ class ToolRegistry:
             )
 
         if decision.action == "ask_user":
-            approved = approve(call, decision) if approve is not None else False
+            if is_mutation_call:
+                mutation_preview = self._build_approval_preview(call)
+                if on_event and mutation_preview:
+                    on_event(f"[tool] preview {call.name}\n{mutation_preview}")
+            approved = approve(call, decision, mutation_preview) if approve is not None else False
             if not approved:
                 self._audit(call=call, decision=decision, outcome="approval_denied", approved=False)
                 return ToolResult(
@@ -238,7 +320,7 @@ class ToolRegistry:
                 return ToolResult(
                     tool_use_id=call.id,
                     ok=True,
-                    content=output,
+                    content=str(output),
                     meta=meta,
                 )
             except Exception as exc:
@@ -325,7 +407,8 @@ def build_default_registry(root: Path) -> ToolRegistry:
             return "Target file already exists and overwrite is disabled."
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
-        return f"Wrote {len(content)} characters to {target.name}"
+        summary = f"Wrote {len(content)} characters to {target.name}"
+        return summary
 
     def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
         target = reg.safe_path(path)
@@ -339,7 +422,8 @@ def build_default_registry(root: Path) -> ToolRegistry:
             updated = original.replace(old_text, new_text, 1)
             replaced_count = 1
         target.write_text(updated, encoding="utf-8")
-        return f"Replaced {replaced_count} occurrence(s) in {target.name}"
+        summary = f"Replaced {replaced_count} occurrence(s) in {target.name}"
+        return summary
 
     def list_dir(path: str = ".") -> str:
         target = reg.safe_path(path)
@@ -364,6 +448,8 @@ def build_default_registry(root: Path) -> ToolRegistry:
             cwd=reg.root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
         stdout = proc.stdout or ""

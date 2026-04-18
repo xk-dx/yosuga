@@ -8,7 +8,7 @@ from yosuga.tools.runtime import ToolRegistry
 
 
 EventHook = Callable[[str], None]
-ApprovalHook = Callable[[ToolCall, ToolPolicyDecision], bool]
+ApprovalHook = Callable[[ToolCall, ToolPolicyDecision, str], bool]
 
 
 class AgentKernel:
@@ -149,7 +149,7 @@ class AgentKernel:
                         },
                     )
 
-                result = self.tools.execute(call, approve=self.approval_hook)
+                result = self.tools.execute(call, approve=self.approval_hook, on_event=on_event)
                 if result.ok:
                     tool_success += 1
                 else:

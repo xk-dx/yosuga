@@ -63,8 +63,18 @@ def _print_welcome() -> None:
     print("                     ꒰ ◞ ˔ ◟ ꒱")
     print("                     ╰- ⠀ ⑅ ⠀-╯ ⸝⸝⸝⸝ ) ഒ")
     print("                     ૮ ૮◟ _ ノと⠀ ⠀ ⊹⠀ ྀི")
-    print(_paint("Commands: /help  |  exit / quit / q", _Color.DIM))
+    print(_paint("Commands: /help  |  /mutate [allow|confirm|block]  |  exit / quit / q", _Color.DIM))
     print(_paint("=" * width, _Color.CYAN))
+
+
+def _print_help() -> None:
+    print(_paint("Commands", _Color.BOLD + _Color.BLUE))
+    print(_paint("  /help                           Show this help", _Color.BLUE))
+    print(_paint("  /mutate allow                   Allow write/edit without prompt", _Color.BLUE))
+    print(_paint("  /mutate confirm                 Require approval before write/edit", _Color.BLUE))
+    print(_paint("  /mutate block                   Block write/edit", _Color.BLUE))
+    print(_paint("  exit | quit | q                 Exit", _Color.BLUE))
+    print()
 
 
 def _print_runtime_summary(
@@ -96,13 +106,16 @@ def _event_printer(msg: str) -> None:
     print(msg)
 
 
-def _approval_prompt(call: ToolCall, decision: ToolPolicyDecision) -> bool:
+def _approval_prompt(call: ToolCall, decision: ToolPolicyDecision, preview_text: str = "") -> bool:
     print(_paint("[policy] Tool call needs confirmation", _Color.MAGENTA))
     print(_paint(f"[policy] tool={call.name}", _Color.MAGENTA))
     if decision.reason:
         print(_paint(f"[policy] reason={decision.reason}", _Color.MAGENTA))
     if decision.suggestion:
         print(_paint(f"[policy] suggestion={decision.suggestion}", _Color.MAGENTA))
+    if preview_text:
+        print(_paint("[policy] preview", _Color.MAGENTA))
+        print(_paint(preview_text, _Color.YELLOW))
     ans = input(_paint("[policy] Continue? [y/N]: ", _Color.BOLD + _Color.MAGENTA)).strip().lower()
     return ans in {"y", "yes"}
 
@@ -220,6 +233,8 @@ def main() -> None:
         report_writer=report_writer,
     )
 
+    print(_paint(f"Mutation mode: {tools.get_mutation_mode()}", _Color.DIM))
+
     while True:
         try:
             query = input(_paint("yosuga> ", _Color.BOLD + _Color.CYAN)).strip()
@@ -232,6 +247,28 @@ def main() -> None:
             session_logger.log("session_end", {"reason": "user_exit"})
             print(_paint("bye", _Color.DIM))
             break
+
+        if query.startswith("/"):
+            cmd = query.strip()
+            if cmd == "/help":
+                _print_help()
+                continue
+
+            if cmd.startswith("/mutate"):
+                parts = cmd.split()
+                if len(parts) != 2:
+                    print(_paint("Usage: /mutate [allow|confirm|block]", _Color.YELLOW))
+                    continue
+                mode = parts[1].strip().lower()
+                try:
+                    tools.set_mutation_mode(mode)
+                    print(_paint(f"Mutation mode set to: {tools.get_mutation_mode()}", _Color.YELLOW))
+                except ValueError as exc:
+                    print(_paint(str(exc), _Color.RED))
+                continue
+
+            print(_paint("Unknown command. Use /help", _Color.YELLOW))
+            continue
 
         if not query:
             continue

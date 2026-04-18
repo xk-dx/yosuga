@@ -12,7 +12,7 @@ class PolicyRules:
     bash_blocked_substrings: List[str] = field(default_factory=list)
     bash_risky_substrings: List[str] = field(default_factory=list)
     read_file_max_lines_without_approval: int = 1000
-    list_dir_root_like_paths: List[str] = field(default_factory=lambda: [".", "", "/", "\\"])
+    list_dir_root_like_paths: List[str] = field(default_factory=list)
     audit_log_relative_path: str = ".yosuga/policy_audit.jsonl"
     session_log_relative_dir: str = ".yosuga/sessions"
     tool_max_retries: int = 2
@@ -35,8 +35,15 @@ def _load_json(path: Path) -> Dict[str, Any]:
 
 
 def load_policy_rules(project_root: Path) -> PolicyRules:
-    config_path = project_root / "src" / "yosuga" / "config" / "policy_rules.json"
-    data = _load_json(config_path)
+    candidate_paths = [
+        project_root / "config" / "policy_rules.json",
+        project_root / "src" / "yosuga" / "config" / "policy_rules.json",
+    ]
+    data: Dict[str, Any] = {}
+    for path in candidate_paths:
+        data = _load_json(path)
+        if data:
+            break
 
     bash = data.get("bash", {}) if isinstance(data, dict) else {}
     read_file = data.get("read_file", {}) if isinstance(data, dict) else {}
@@ -51,7 +58,7 @@ def load_policy_rules(project_root: Path) -> PolicyRules:
         bash_blocked_substrings=[str(x).lower() for x in bash.get("blocked_substrings", [])],
         bash_risky_substrings=[str(x).lower() for x in bash.get("risky_substrings", [])],
         read_file_max_lines_without_approval=int(read_file.get("max_lines_without_approval", 1000)),
-        list_dir_root_like_paths=[str(x) for x in list_dir.get("root_like_paths", [".", "", "/", "\\"])],
+        list_dir_root_like_paths=[str(x) for x in list_dir.get("root_like_paths", [])],
         audit_log_relative_path=str(audit.get("log_relative_path", ".yosuga/policy_audit.jsonl")),
         session_log_relative_dir=str(session.get("log_relative_dir", ".yosuga/sessions")),
         tool_max_retries=int(tool_resilience.get("max_retries", 2)),

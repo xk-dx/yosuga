@@ -13,6 +13,16 @@ from yosuga.core.types import ToolCall, ToolPolicyDecision
 class ToolPolicyEngine:
     workspace_root: Path
     rules: PolicyRules
+    mutation_mode: str = "confirm"
+
+    def set_mutation_mode(self, mode: str) -> None:
+        normalized = (mode or "").strip().lower()
+        if normalized not in {"allow", "confirm", "block"}:
+            raise ValueError("mutation mode must be one of: allow, confirm, block")
+        self.mutation_mode = normalized
+
+    def get_mutation_mode(self) -> str:
+        return self.mutation_mode
 
     def _safe_path(self, path: str) -> Path:
         target = (self.workspace_root / path).resolve()
@@ -109,6 +119,14 @@ class ToolPolicyEngine:
         return " && ".join(expanded)
 
     def _decide_file_ops(self, call: ToolCall) -> ToolPolicyDecision:
+        if self.mutation_mode == "block":
+            return ToolPolicyDecision(
+                action="block",
+                code="mutation_blocked_by_command",
+                reason="write_file/edit_file are blocked by current CLI mutation mode.",
+                suggestion="Use /mutate allow or /mutate confirm to enable mutation tools.",
+            )
+
         path = str(call.input.get("path", ""))
         if not path:
             return ToolPolicyDecision(
@@ -129,9 +147,19 @@ class ToolPolicyEngine:
             )
 
         if call.name == "write_file":
-            return self._decide_write_file(call, target)
+            base_decision = self._decide_write_file(call, target)
+        else:
+            base_decision = self._decide_edit_file(call, target)
 
-        return self._decide_edit_file(call, target)
+        if self.mutation_mode == "confirm" and base_decision.action == "allow":
+            return ToolPolicyDecision(
+                action="ask_user",
+                code="mutation_confirm_by_command",
+                reason="write_file/edit_file require explicit confirmation in current CLI mutation mode.",
+                suggestion="Review preview diff and approve, or switch mode with /mutate allow.",
+            )
+
+        return base_decision
 
     def _decide_write_file(self, call: ToolCall, target: Path) -> ToolPolicyDecision:
         content = str(call.input.get("content", ""))
