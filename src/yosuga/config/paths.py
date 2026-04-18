@@ -12,14 +12,14 @@ class RuntimePaths:
 
 
 def default_project_root() -> Path:
-    # src/yusuga/config/paths.py -> src/yusuga
+    # src/yosuga/config/paths.py -> src/yosuga
     return Path(__file__).resolve().parents[1]
 
 
 def resolve_runtime_paths(workspace_arg: str | None = None) -> RuntimePaths:
     project_root = default_project_root()
 
-    env_workspace = os.getenv("YUSUGA_WORKSPACE_ROOT", "").strip()
+    env_workspace = os.getenv("yosuga_WORKSPACE_ROOT", "").strip()
     raw_workspace = workspace_arg or env_workspace
     if raw_workspace:
         workspace_root = Path(raw_workspace).resolve()

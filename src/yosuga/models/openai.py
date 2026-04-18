@@ -2,8 +2,8 @@ import json
 import os
 from typing import Any, Dict, List
 
-from yusuga.config.prompt import load_system_prompt
-from yusuga.core.types import ModelResponse, ToolCall
+from yosuga.config.prompt import load_system_prompt
+from yosuga.core.types import ModelResponse, ToolCall
 
 
 class OpenAIModel:

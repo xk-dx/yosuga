@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 
 @dataclass
@@ -16,6 +16,17 @@ class ToolResult:
     content: str
     error: Optional[str] = None
     meta: Dict[str, Any] = field(default_factory=dict)
+
+
+PolicyAction = Literal["allow", "block", "ask_user"]
+
+
+@dataclass
+class ToolPolicyDecision:
+    action: PolicyAction
+    reason: str = ""
+    suggestion: str = ""
+    code: str = ""
 
 
 @dataclass

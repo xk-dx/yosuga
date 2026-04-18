@@ -1,7 +1,7 @@
 import uuid
 from typing import Any, Dict, List
 
-from yusuga.core.types import ModelResponse, ToolCall
+from yosuga.core.types import ModelResponse, ToolCall
 
 
 class MockModel:

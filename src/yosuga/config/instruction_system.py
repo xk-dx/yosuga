@@ -6,7 +6,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import List, Tuple
 
-from yusuga.config.paths import default_project_root
+from yosuga.config.paths import default_project_root
 
 
 @dataclass
@@ -87,19 +87,19 @@ class InstructionComposer:
         return fallback_text, str(fallback) if fallback_text else ""
 
     def _load_project_policy(self) -> Tuple[str, str]:
-        path = self.project_root / "YUSUGA.md"
+        path = self.project_root / "YOSUGA.md"
         text = self._read_text_if_exists(path)
         return (text, str(path)) if text else ("", "")
 
     def _load_workspace_policy(self) -> Tuple[str, str]:
         # Workspace policy is similar to CLAUDE.md semantics: repo-local behavior rules.
         candidates = [
-            self.workspace_root / "yusuga.md",
-            self.workspace_root / "YUSUGA.md",
+            self.workspace_root / "yosuga.md",
+            self.workspace_root / "YOSUGA.md",
             self.workspace_root / "CLAUDE.md",
         ]
 
-        project_policy_path = (self.project_root / "YUSUGA.md").resolve()
+        project_policy_path = (self.project_root / "yosuga.md").resolve()
         for path in candidates:
             if not path.exists() or not path.is_file():
                 continue
@@ -132,7 +132,7 @@ class InstructionComposer:
 
 def load_engineered_system_prompt(workspace_root: Path | None = None) -> PromptBuildResult:
     project_root = default_project_root()
-    resolved_workspace = workspace_root or Path(os.getenv("YUSUGA_WORKSPACE_ROOT", "") or Path.cwd())
+    resolved_workspace = workspace_root or Path(os.getenv("yosuga_WORKSPACE_ROOT", "") or Path.cwd())
     resolved_workspace = resolved_workspace.resolve()
     role = os.getenv("AGENT_ROLE", "lead")
     composer = InstructionComposer(

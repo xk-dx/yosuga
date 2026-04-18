@@ -1,0 +1,50 @@
+{
+    "bash": {
+        "blocked_substrings": [
+            "del /s /q c:\\\\",
+            "rd /s /q",
+            "format",
+            "shutdown",
+            "reboot",
+            "reg delete"
+        ],
+        "risky_substrings": [
+            "rm -rf",
+            "del ",
+            "truncate",
+            "mkfs",
+            "diskpart"
+        ]
+    },
+    "read_file": {
+        "max_lines_without_approval": 1000
+    },
+    "list_dir": {
+        "root_like_paths": [
+            ".",
+            "",
+            "/",
+            "\\\\"
+        ]
+    },
+    "audit": {
+        "log_relative_path": ".yosuga/policy_audit.jsonl"
+    },
+    "session": {
+        "log_relative_dir": ".yosuga/sessions"
+    },
+    "resilience": {
+        "tool": {
+            "max_retries": 2,
+            "backoff_base_seconds": 0.5,
+            "backoff_max_seconds": 4.0,
+            "backoff_jitter_seconds": 0.2,
+            "circuit_failure_threshold": 5,
+            "circuit_open_seconds": 30.0
+        }
+    },
+    "file_ops": {
+        "write_large_content_chars": 20000,
+        "edit_large_change_chars": 20000
+    }
+}

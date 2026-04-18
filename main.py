@@ -10,7 +10,7 @@ if str(SRC) not in sys.path:
 
 
 def _entry() -> None:
-    from yusuga.surfaces.cli.app import main
+    from yosuga.surfaces.cli.app import main
 
     main()
 

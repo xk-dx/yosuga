@@ -9,6 +9,6 @@
 
 ## Conflict Priority
 1. Safety and policy constraints
-2. Project rules from YUSUGA.md
+2. Project rules from yosuga.md
 3. User task specifics
 4. Style preferences

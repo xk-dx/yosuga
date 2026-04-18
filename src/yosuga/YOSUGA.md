@@ -1,8 +1,8 @@
-# YUSUGA Project Policy
+# yosuga Project Policy
 
 ## Scope
 - This workspace focuses on building an engineering-grade coding agent harness.
-- Preserve the capability-domain architecture under src/yusuga.
+- Preserve the capability-domain architecture under src/yosuga.
 
 ## Architecture Rules
 - Keep modules focused: runtime, models, tools, config, surfaces.

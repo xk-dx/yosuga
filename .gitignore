@@ -53,7 +53,7 @@ Thumbs.db
 logs/
 *.log
 .tmp/
-.yusuga/
+.yosuga/
 
 # Local environment and secrets
 .env
