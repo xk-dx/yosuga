@@ -4,6 +4,7 @@ import json
 import random
 import time
 import difflib
+import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -14,7 +15,7 @@ from yosuga.tools.policy import ToolPolicyEngine
 
 
 ToolHandler = Callable[..., Any]
-ApprovalHandler = Callable[[ToolCall, ToolPolicyDecision, str], bool]
+ApprovalHandler = Callable[[ToolCall, ToolPolicyDecision], str]
 EventHandler = Callable[[str], None]
 
 
@@ -130,7 +131,7 @@ class ToolRegistry:
     def _policy_for(self, call: ToolCall) -> ToolPolicyDecision:
         return self._policy_engine.decide(call)
 
-    def _build_approval_preview(self, call: ToolCall) -> str:
+    def _build_event_preview(self, call: ToolCall) -> str:
         if call.name == "write_file":
             path = str(call.input.get("path", ""))
             content = str(call.input.get("content", ""))
@@ -200,8 +201,6 @@ class ToolRegistry:
         on_event: Optional[EventHandler] = None,
     ) -> ToolResult:
         fingerprint = self._fingerprint_call(call)
-        is_mutation_call = call.name in {"write_file", "edit_file"}
-        mutation_preview = ""
 
         if self._last_call_fingerprint == fingerprint:
             duplicate_decision = ToolPolicyDecision(
@@ -245,18 +244,19 @@ class ToolRegistry:
             )
 
         if decision.action == "ask_user":
-            if is_mutation_call:
-                mutation_preview = self._build_approval_preview(call)
-                if on_event and mutation_preview:
-                    on_event(f"[tool] preview {call.name}\n{mutation_preview}")
-            approved = approve(call, decision, mutation_preview) if approve is not None else False
-            if not approved:
+            if on_event and call.name in {"write_file", "edit_file"}:
+                preview_text = self._build_event_preview(call)
+                if preview_text:
+                    on_event(f"[tool] preview {call.name}\n{preview_text}")
+            approval_message = approve(call, decision) if approve is not None else "Tool call was not approved."
+            if approval_message:
                 self._audit(call=call, decision=decision, outcome="approval_denied", approved=False)
+                error_text = f"user rejected your approval: {approval_message}".strip()
                 return ToolResult(
                     tool_use_id=call.id,
                     ok=False,
                     content="",
-                    error="Tool call requires user approval.",
+                    error=error_text,
                     meta={
                         "name": call.name,
                         "policy_action": decision.action,
@@ -490,6 +490,104 @@ def build_default_registry(root: Path) -> ToolRegistry:
             f"[SKILL.md]\n{content}"
         )
 
+    def glob(
+        pattern: str = "**/*",
+        path: str = ".",
+        max_results: int = 500,
+        include_dirs: bool = False,
+    ) -> str:
+        effective_pattern = (pattern or "**/*").strip() or "**/*"
+        effective_path = (path or ".").strip() or "."
+        limit = max(1, min(int(max_results or 500), 5000))
+
+        target = reg.safe_path(effective_path)
+        if not target.exists() or not target.is_dir():
+            return f"Not a directory: {effective_path}"
+
+        matches: List[str] = []
+        for p in sorted(target.glob(effective_pattern)):
+            if p.is_dir() and not include_dirs:
+                continue
+            rel = p.relative_to(reg.root).as_posix()
+            if p.is_dir():
+                rel += "/"
+            matches.append(rel)
+            if len(matches) >= limit:
+                break
+
+        if not matches:
+            return "(no matches)"
+        return "\n".join(matches)
+
+    def grep(
+        query: str = "",
+        path: str = ".",
+        is_regexp: bool = False,
+        max_results: int = 200,
+        case_sensitive: bool = False,
+    ) -> str:
+        effective_query = (query or "").strip()
+        if not effective_query:
+            return "Query is required."
+
+        effective_path = (path or ".").strip() or "."
+        effective_is_regexp = bool(is_regexp)
+        limit = max(1, min(int(max_results or 200), 5000))
+
+        target = reg.safe_path(effective_path)
+        if not target.exists():
+            return f"Not found: {effective_path}"
+
+        flags = 0 if case_sensitive else re.IGNORECASE
+        regex = None
+        if effective_is_regexp:
+            try:
+                regex = re.compile(effective_query, flags)
+            except re.error as exc:
+                return f"Invalid regex: {exc}"
+
+        def _iter_files() -> List[Path]:
+            if target.is_file():
+                return [target]
+            files: List[Path] = []
+            for p in target.rglob("*"):
+                if p.is_file():
+                    files.append(p)
+            return files
+
+        def _is_binary(file_path: Path) -> bool:
+            try:
+                chunk = file_path.read_bytes()[:4096]
+            except Exception:
+                return True
+            return b"\x00" in chunk
+
+        lines_out: List[str] = []
+        for file_path in _iter_files():
+            if _is_binary(file_path):
+                continue
+            try:
+                with file_path.open("r", encoding="utf-8", errors="replace") as f:
+                    for idx, line in enumerate(f, start=1):
+                        text = line.rstrip("\n\r")
+                        matched = False
+                        if regex is not None:
+                            matched = bool(regex.search(text))
+                        else:
+                            if case_sensitive:
+                                matched = effective_query in text
+                            else:
+                                matched = effective_query.lower() in text.lower()
+                        if matched:
+                            rel = file_path.relative_to(reg.root).as_posix()
+                            lines_out.append(f"{rel}:{idx}:{text}")
+                            if len(lines_out) >= limit:
+                                return "\n".join(lines_out)
+            except Exception:
+                continue
+
+        return "\n".join(lines_out) if lines_out else "(no matches)"
+
     reg.register(
         "list_dir",
         "List entries in a directory.",
@@ -498,6 +596,36 @@ def build_default_registry(root: Path) -> ToolRegistry:
             "type": "object",
             "properties": {"path": {"type": "string"}},
             "required": ["path"],
+        },
+    )
+    reg.register(
+        "glob",
+        "Find files by glob pattern in the workspace.",
+        glob,
+        {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string"},
+                "path": {"type": "string"},
+                "max_results": {"type": "integer", "minimum": 1},
+                "include_dirs": {"type": "boolean"},
+            },
+        },
+    )
+    reg.register(
+        "grep",
+        "Search text in files under a path.",
+        grep,
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "path": {"type": "string"},
+                "is_regexp": {"type": "boolean"},
+                "max_results": {"type": "integer", "minimum": 1},
+                "case_sensitive": {"type": "boolean"},
+            },
+            "required": ["query"],
         },
     )
     reg.register(

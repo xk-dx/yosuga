@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict, List
 
-from yosuga.config.instruction_system import load_system_prompt
+from yosuga.config.instruction_system import load_engineered_system_prompt
 from yosuga.core.types import ModelResponse, ToolCall
 
 
@@ -106,5 +106,5 @@ def load_anthropic_from_env() -> AnthropicModel:
         api_base=api_base,
         api_key=api_key,
         model=model,
-        system_prompt=load_system_prompt(),
+        system_prompt=load_engineered_system_prompt().prompt,
     )

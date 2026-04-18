@@ -3,7 +3,7 @@ import json
 import os
 from typing import Any, Dict, List
 
-from yosuga.config.instruction_system import load_system_prompt
+from yosuga.config.instruction_system import load_engineered_system_prompt
 from yosuga.core.types import ModelResponse, ToolCall
 
 
@@ -94,7 +94,7 @@ class OpenAIModel:
                 try:
                     args = self._parse_tool_arguments(fn.arguments)
                 except ValueError as exc:
-                    tool_arg_warnings.append(f"exists {fn.name}: invalid arguments ({exc})")
+                    tool_arg_warnings.append(f"exists {fn.name} error: invalid arguments ({exc})")
                     continue
 
                 required_fields = required_fields_by_tool.get(fn.name, [])
@@ -231,5 +231,5 @@ def load_openai_from_env() -> OpenAIModel:
         api_base=api_base,
         api_key=api_key,
         model=model,
-        system_prompt=load_system_prompt(),
+        system_prompt=load_engineered_system_prompt().prompt,
     )

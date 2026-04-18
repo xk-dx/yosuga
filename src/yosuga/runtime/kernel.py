@@ -1,3 +1,4 @@
+import json
 import time
 from typing import Any, Callable, Dict, List
 
@@ -8,11 +9,15 @@ from yosuga.tools.runtime import ToolRegistry
 
 
 EventHook = Callable[[str], None]
-ApprovalHook = Callable[[ToolCall, ToolPolicyDecision, str], bool]
+ApprovalHook = Callable[[ToolCall, ToolPolicyDecision], str]
 
 
 class AgentKernel:
     """Minimal runtime kernel: model -> tool -> result -> model."""
+
+    _LOG_MAX_STRING_CHARS = 200
+    _LOG_MAX_LIST_ITEMS = 50
+    _LOG_MAX_DICT_ITEMS = 100
 
     def __init__(
         self,
@@ -105,11 +110,21 @@ class AgentKernel:
                     assistant_msg["reasoning_content"] = response.reasoning_content
                 history.append(assistant_msg)
             else:
-                history.append({"role": "assistant", "content": response.text})
+                final_text = (response.text or "").strip()
+                if response.tool_validation_errors:
+                    if final_text:
+                        history.append({"role": "assistant", "content": final_text})
+                    feedback_text = self._build_tool_validation_feedback(response.tool_validation_errors)
+                    if on_event:
+                        on_event("[model:retry] " + feedback_text)
+                    history.append({"role": "user", "content": feedback_text})
+                    continue
+
+                history.append({"role": "assistant", "content": final_text})
                 self._write_turn_report(
                     turn_id=turn_id,
                     user_input=user_input,
-                    answer=response.text,
+                    answer=final_text,
                     duration_ms=(time.perf_counter() - start_time) * 1000.0,
                     model_calls=model_calls,
                     prompt_tokens=prompt_tokens,
@@ -127,16 +142,23 @@ class AgentKernel:
                         "turn_complete",
                         {
                             "turn_id": turn_id,
-                            "answer": response.text,
+                            "answer": final_text,
                         },
                     )
-                return response.text
+                return final_text
 
             tool_results_payload = []
             for call in response.tool_calls:
                 tool_calls += 1
+                log_input = self._compact_for_log(call.input)
+                log_input_json = json.dumps(log_input, ensure_ascii=False, default=str)
                 if on_event:
-                    on_event(f"[tool] call {call.name} args={call.input!r}")
+                    target_path = str(call.input.get("path", "")).strip() if isinstance(call.input, dict) else ""
+                    if call.name in {"write_file", "edit_file"}:
+                        shown_path = target_path if target_path else "(missing)"
+                        on_event(f"[tool] call {call.name} file={shown_path}")
+                    else:
+                        on_event(f"[tool] call {call.name} args={log_input_json}")
 
                 if self.session_logger:
                     self.session_logger.log(
@@ -145,7 +167,7 @@ class AgentKernel:
                             "turn_id": turn_id,
                             "tool_use_id": call.id,
                             "name": call.name,
-                            "input": call.input,
+                            "input": log_input,
                         },
                     )
 
@@ -156,15 +178,6 @@ class AgentKernel:
                     tool_failures += 1
                 tool_retries += int(result.meta.get("retry_count", 0) or 0)
 
-                if result.ok:
-                    content = result.content
-                else:
-                    suggestion = result.meta.get("policy_suggestion", "")
-                    if suggestion:
-                        content = f"Error: {result.error}\nSuggestion: {suggestion}"
-                    else:
-                        content = f"Error: {result.error}"
-
                 if self.session_logger:
                     self.session_logger.log(
                         "tool_result",
@@ -173,7 +186,7 @@ class AgentKernel:
                             "tool_use_id": result.tool_use_id,
                             "name": result.meta.get("name", call.name),
                             "ok": result.ok,
-                            "error": result.error or "",
+                            "error": result.error,
                             "meta": result.meta,
                         },
                     )
@@ -184,7 +197,9 @@ class AgentKernel:
                         "tool_use_id": result.tool_use_id,
                         "name": result.meta.get("name", call.name),
                         "ok": result.ok,
-                        "content": content,
+                        "content": result.content,
+                        "error": result.error,
+                        "meta": result.meta,
                     }
                 )
 
@@ -260,3 +275,35 @@ class AgentKernel:
                 "max_iters_reached": max_iters_reached,
             }
         )
+
+    @staticmethod
+    def _build_tool_validation_feedback(errors: List[str]) -> str:
+        return (
+            "Tool argument validation failed: "
+            + " | ".join(errors)
+            + ". Please retry with valid JSON arguments and required fields."
+        )
+
+    def _compact_for_log(self, value: Any) -> Any:
+        if isinstance(value, str):
+            if len(value) <= self._LOG_MAX_STRING_CHARS:
+                return value
+            omitted = len(value) - self._LOG_MAX_STRING_CHARS
+            return value[: self._LOG_MAX_STRING_CHARS] + f"... [truncated {omitted} chars]"
+
+        if isinstance(value, list):
+            head = [self._compact_for_log(v) for v in value[: self._LOG_MAX_LIST_ITEMS]]
+            if len(value) > self._LOG_MAX_LIST_ITEMS:
+                head.append(f"... [truncated {len(value) - self._LOG_MAX_LIST_ITEMS} items]")
+            return head
+
+        if isinstance(value, dict):
+            compacted: Dict[str, Any] = {}
+            items = list(value.items())
+            for k, v in items[: self._LOG_MAX_DICT_ITEMS]:
+                compacted[str(k)] = self._compact_for_log(v)
+            if len(items) > self._LOG_MAX_DICT_ITEMS:
+                compacted["__truncated_keys__"] = len(items) - self._LOG_MAX_DICT_ITEMS
+            return compacted
+
+        return value

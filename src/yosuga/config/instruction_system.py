@@ -190,10 +190,3 @@ def load_engineered_system_prompt(workspace_root: Path | None = None) -> PromptB
         role=role,
     )
     return composer.compose()
-
-
-def load_system_prompt() -> str:
-    workspace_env = os.getenv("yosuga_WORKSPACE_ROOT", "").strip()
-    workspace_root = Path(workspace_env).resolve() if workspace_env else None
-    engineered = load_engineered_system_prompt(workspace_root=workspace_root)
-    return engineered.prompt or ""

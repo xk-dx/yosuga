@@ -106,18 +106,24 @@ def _event_printer(msg: str) -> None:
     print(msg)
 
 
-def _approval_prompt(call: ToolCall, decision: ToolPolicyDecision, preview_text: str = "") -> bool:
+def _approval_prompt(call: ToolCall, decision: ToolPolicyDecision) -> str:
     print(_paint("[policy] Tool call needs confirmation", _Color.MAGENTA))
     print(_paint(f"[policy] tool={call.name}", _Color.MAGENTA))
     if decision.reason:
         print(_paint(f"[policy] reason={decision.reason}", _Color.MAGENTA))
     if decision.suggestion:
         print(_paint(f"[policy] suggestion={decision.suggestion}", _Color.MAGENTA))
-    if preview_text:
-        print(_paint("[policy] preview", _Color.MAGENTA))
-        print(_paint(preview_text, _Color.YELLOW))
     ans = input(_paint("[policy] Continue? [y/N]: ", _Color.BOLD + _Color.MAGENTA)).strip().lower()
-    return ans in {"y", "yes"}
+    if ans in {"y", "yes"}:
+        return ""
+
+    reason = input(_paint("[policy] Rejection reason (optional): ", _Color.BOLD + _Color.MAGENTA)).strip()
+    if reason:
+        return reason
+
+    command_hint = "Rejected by user."
+    print(_paint(f"[policy] {command_hint}", _Color.MAGENTA))
+    return command_hint
 
 
 def _build_model(backend: str | None = None):
