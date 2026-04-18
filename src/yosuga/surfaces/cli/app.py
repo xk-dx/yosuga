@@ -11,6 +11,7 @@ from yosuga.models.anthropic import load_anthropic_from_env
 from yosuga.models.mock import MockModel
 from yosuga.models.openai import load_openai_from_env
 from yosuga.runtime.kernel import AgentKernel
+from yosuga.runtime.report import TurnReportWriter
 from yosuga.tools.runtime import build_default_registry
 
 
@@ -33,12 +34,14 @@ def _print_runtime_summary(
     workspace_root: Path,
     session_id: str,
     session_log_path: Path,
+    session_report_path: Path,
 ) -> None:
     print("Runtime")
     print(f"  Project root : {project_root}")
     print(f"  Workspace    : {workspace_root}")
     print(f"  Session id   : {session_id}")
     print(f"  Session log  : {session_log_path}")
+    print(f"  Session report: {session_report_path}")
     print()
 
 
@@ -141,11 +144,13 @@ def main() -> None:
         workspace_root=paths.workspace_root,
         relative_dir=policy_rules.session_log_relative_dir,
     )
+    report_writer = TurnReportWriter(session_dir=session_logger.session_dir)
     _print_runtime_summary(
         project_root=paths.project_root,
         workspace_root=paths.workspace_root,
         session_id=session_logger.session_id,
         session_log_path=session_logger.path,
+        session_report_path=report_writer.path,
     )
     session_logger.log(
         "session_start",
@@ -164,6 +169,7 @@ def main() -> None:
         tools=tools,
         approval_hook=_approval_prompt,
         session_logger=session_logger,
+        report_writer=report_writer,
     )
 
     while True:

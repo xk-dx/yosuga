@@ -8,9 +8,15 @@ from typing import Any, Dict
 class SessionLogger:
     def __init__(self, workspace_root: Path, relative_dir: str, session_id: str | None = None):
         self.session_id = session_id or uuid.uuid4().hex
-        self._dir = (workspace_root / relative_dir).resolve()
-        self._dir.mkdir(parents=True, exist_ok=True)
-        self._path = self._dir / f"{self.session_id}.jsonl"
+        self._root_dir = (workspace_root / relative_dir).resolve()
+        self._root_dir.mkdir(parents=True, exist_ok=True)
+        self._session_dir = self._root_dir / self.session_id
+        self._session_dir.mkdir(parents=True, exist_ok=True)
+        self._path = self._session_dir / "session.jsonl"
+
+    @property
+    def session_dir(self) -> Path:
+        return self._session_dir
 
     @property
     def path(self) -> Path:

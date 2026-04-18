@@ -64,6 +64,12 @@ class OpenAIModel:
         tool_arg_warnings: List[str] = []
         choice = response.choices[0]
         reasoning_content = getattr(choice.message, "reasoning_content", "") or ""
+        usage_obj = getattr(response, "usage", None)
+        usage = {
+            "prompt_tokens": int(getattr(usage_obj, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(usage_obj, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(usage_obj, "total_tokens", 0) or 0),
+        }
 
         required_fields_by_tool: Dict[str, List[str]] = {}
         for spec in tools:
@@ -88,7 +94,7 @@ class OpenAIModel:
                 try:
                     args = self._parse_tool_arguments(fn.arguments)
                 except ValueError as exc:
-                    tool_arg_warnings.append(f"{fn.name}: invalid arguments ({exc})")
+                    tool_arg_warnings.append(f"exists {fn.name}: invalid arguments ({exc})")
                     continue
 
                 required_fields = required_fields_by_tool.get(fn.name, [])
@@ -102,14 +108,12 @@ class OpenAIModel:
 
                 calls.append(ToolCall(id=tc.id, name=fn.name, input=args))
 
-        if tool_arg_warnings:
-            warning_text = "Tool call argument validation failed: " + " | ".join(tool_arg_warnings)
-            text_parts.append(warning_text)
-
         return ModelResponse(
             text="\n".join(text_parts).strip(),
             tool_calls=calls,
             reasoning_content=reasoning_content,
+            usage=usage,
+            tool_validation_errors=tool_arg_warnings,
         )
 
     @staticmethod

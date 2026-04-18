@@ -34,3 +34,5 @@ class ModelResponse:
     text: str = ""
     tool_calls: List[ToolCall] = field(default_factory=list)
     reasoning_content: str = ""
+    usage: Dict[str, int] = field(default_factory=dict)
+    tool_validation_errors: List[str] = field(default_factory=list)

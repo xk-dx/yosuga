@@ -40,13 +40,21 @@ class AnthropicModel:
 
         text_parts: List[str] = []
         calls: List[ToolCall] = []
+        usage_obj = getattr(response, "usage", None)
+        prompt_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
+        usage = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
         for block in response.content:
             if block.type == "text":
                 text_parts.append(block.text)
             elif block.type == "tool_use":
                 calls.append(ToolCall(id=block.id, name=block.name, input=dict(block.input)))
 
-        return ModelResponse(text="\n".join(text_parts).strip(), tool_calls=calls)
+        return ModelResponse(text="\n".join(text_parts).strip(), tool_calls=calls, usage=usage)
 
     def _normalize_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         normalized: List[Dict[str, Any]] = []
