@@ -365,8 +365,16 @@ def build_default_registry(root: Path) -> ToolRegistry:
             text=True,
             timeout=30,
         )
-        output = (proc.stdout + proc.stderr).strip()
-        return output[:50000] if output else "(no output)"
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+        output = (stdout + stderr).strip()
+        if output:
+            if proc.returncode != 0:
+                output = f"[exit_code={proc.returncode}]\n{output}"
+            return output[:50000]
+        if proc.returncode != 0:
+            return f"[exit_code={proc.returncode}] (no output)"
+        return "(no output)"
 
     def list_skills(scope: str = "all") -> str:
         scope_norm = (scope or "all").strip().lower()
