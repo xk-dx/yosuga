@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict, List
 
-from yosuga.config.prompt import load_system_prompt
+from yosuga.config.instruction_system import load_system_prompt
 from yosuga.core.types import ModelResponse, ToolCall
 
 

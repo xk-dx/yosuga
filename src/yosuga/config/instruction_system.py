@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from yosuga.config.paths import default_project_root
+from yosuga.config.skills import SkillCatalog
 
 
 @dataclass
@@ -57,6 +58,11 @@ class InstructionComposer:
         if runtime_block:
             blocks.append(runtime_block)
             sources.append("runtime:workspace-root")
+
+        skill_index_block, skill_index_source = self._build_skill_index_block()
+        if skill_index_block:
+            blocks.append(skill_index_block)
+            sources.append(skill_index_source)
 
         fixed_prefix = "\n\n".join(blocks).strip()
         prompt_hash = sha256(fixed_prefix.encode("utf-8")).hexdigest() if fixed_prefix else ""
@@ -143,6 +149,29 @@ class InstructionComposer:
             f"- {command_hint}"
         )
 
+    def _build_skill_index_block(self) -> Tuple[str, str]:
+        catalog = SkillCatalog(workspace_root=self.workspace_root, project_root=self.project_root)
+        metas = catalog.list_meta()
+        if not metas:
+            return "", ""
+
+        lines = [
+            "# Skills Index (metadata-only)",
+            "",
+            "Only metadata is preloaded at startup. Use tool `use_skill` to load a full skill when needed.",
+            "",
+        ]
+        for meta in metas[:120]:
+            desc = meta.description.strip().replace("\n", " ")
+            if len(desc) > 180:
+                desc = desc[:180] + "..."
+            lines.append(f"- slug: {meta.slug} | name: {meta.name} | description: {desc}")
+
+        if len(metas) > 120:
+            lines.append(f"- ... ({len(metas) - 120} more skills)")
+
+        return "\n".join(lines), "runtime:skills-index"
+
     @staticmethod
     def _read_text_if_exists(path: Path) -> str:
         if not path.exists() or not path.is_file():
@@ -161,3 +190,10 @@ def load_engineered_system_prompt(workspace_root: Path | None = None) -> PromptB
         role=role,
     )
     return composer.compose()
+
+
+def load_system_prompt() -> str:
+    workspace_env = os.getenv("yosuga_WORKSPACE_ROOT", "").strip()
+    workspace_root = Path(workspace_env).resolve() if workspace_env else None
+    engineered = load_engineered_system_prompt(workspace_root=workspace_root)
+    return engineered.prompt or ""

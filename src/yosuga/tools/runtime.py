@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from yosuga.config.policy import PolicyAuditLogger, PolicyRules, load_policy_rules
+from yosuga.config.skills import SkillCatalog
 from yosuga.core.types import ToolCall, ToolPolicyDecision, ToolResult
 from yosuga.tools.policy import ToolPolicyEngine
 
@@ -24,7 +25,9 @@ class ToolRegistry:
     ):
         self.root = root.resolve()
         project_root = Path(os.getenv("yosuga_PROJECT_ROOT", str(self.root))).resolve()
+        self.project_root = project_root
         self.policy_rules = policy_rules or load_policy_rules(project_root)
+        self.skill_catalog = SkillCatalog(workspace_root=self.root, project_root=project_root)
         self.policy_audit_logger = policy_audit_logger or PolicyAuditLogger(
             workspace_root=self.root,
             relative_path=self.policy_rules.audit_log_relative_path,
@@ -365,6 +368,33 @@ def build_default_registry(root: Path) -> ToolRegistry:
         output = (proc.stdout + proc.stderr).strip()
         return output[:50000] if output else "(no output)"
 
+    def list_skills(scope: str = "all") -> str:
+        scope_norm = (scope or "all").strip().lower()
+        metas = reg.skill_catalog.list_meta()
+        if not metas:
+            return "(no skills found)"
+
+        lines: List[str] = []
+        for meta in metas:
+            if scope_norm == "workspace" and not str(meta.root_dir).startswith(str(reg.root)):
+                continue
+            desc = meta.description.strip().replace("\n", " ")
+            lines.append(f"{meta.slug} | {meta.name} | {desc}")
+
+        return "\n".join(lines) if lines else "(no skills found for scope)"
+
+    def use_skill(skill: str, max_chars: int = 50000) -> str:
+        meta, content, scripts = reg.skill_catalog.load_full(skill=skill, max_chars=max_chars)
+        script_block = "\n".join(f"- {s}" for s in scripts) if scripts else "- (none)"
+        return (
+            f"[skill]\n"
+            f"slug: {meta.slug}\n"
+            f"name: {meta.name}\n"
+            f"root: {meta.root_dir}\n"
+            f"scripts:\n{script_block}\n\n"
+            f"[SKILL.md]\n{content}"
+        )
+
     reg.register(
         "list_dir",
         "List entries in a directory.",
@@ -386,6 +416,30 @@ def build_default_registry(root: Path) -> ToolRegistry:
                 "max_lines": {"type": "integer", "minimum": 1},
             },
             "required": ["path"],
+        },
+    )
+    reg.register(
+        "list_skills",
+        "List available skills from .yosuga/skills metadata index.",
+        list_skills,
+        {
+            "type": "object",
+            "properties": {
+                "scope": {"type": "string", "enum": ["all", "workspace"]},
+            },
+        },
+    )
+    reg.register(
+        "use_skill",
+        "Load full SKILL.md and scripts list for one skill by slug or name.",
+        use_skill,
+        {
+            "type": "object",
+            "properties": {
+                "skill": {"type": "string"},
+                "max_chars": {"type": "integer", "minimum": 1000, "maximum": 200000},
+            },
+            "required": ["skill"],
         },
     )
     reg.register(
