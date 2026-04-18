@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 from typing import Any, Dict, List
@@ -60,8 +61,23 @@ class OpenAIModel:
 
         text_parts: List[str] = []
         calls: List[ToolCall] = []
+        tool_arg_warnings: List[str] = []
         choice = response.choices[0]
         reasoning_content = getattr(choice.message, "reasoning_content", "") or ""
+
+        required_fields_by_tool: Dict[str, List[str]] = {}
+        for spec in tools:
+            if not isinstance(spec, dict):
+                continue
+            tool_name = str(spec.get("name", "") or "")
+            input_schema = spec.get("input_schema", {})
+            required = []
+            if isinstance(input_schema, dict):
+                raw_required = input_schema.get("required", [])
+                if isinstance(raw_required, list):
+                    required = [str(x) for x in raw_required]
+            if tool_name:
+                required_fields_by_tool[tool_name] = required
 
         if choice.message.content:
             text_parts.append(choice.message.content)
@@ -70,16 +86,61 @@ class OpenAIModel:
             for tc in choice.message.tool_calls:
                 fn = tc.function
                 try:
-                    args = json.loads(fn.arguments) if isinstance(fn.arguments, str) else fn.arguments
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
+                    args = self._parse_tool_arguments(fn.arguments)
+                except ValueError as exc:
+                    tool_arg_warnings.append(f"{fn.name}: invalid arguments ({exc})")
+                    continue
+
+                required_fields = required_fields_by_tool.get(fn.name, [])
+                missing_required = [
+                    key for key in required_fields if key not in args or args.get(key) in (None, "")
+                ]
+                if missing_required:
+                    missing_text = ", ".join(missing_required)
+                    tool_arg_warnings.append(f"{fn.name}: missing required arguments: {missing_text}")
+                    continue
+
                 calls.append(ToolCall(id=tc.id, name=fn.name, input=args))
+
+        if tool_arg_warnings:
+            warning_text = "Tool call argument validation failed: " + " | ".join(tool_arg_warnings)
+            text_parts.append(warning_text)
 
         return ModelResponse(
             text="\n".join(text_parts).strip(),
             tool_calls=calls,
             reasoning_content=reasoning_content,
         )
+
+    @staticmethod
+    def _parse_tool_arguments(raw_arguments: Any) -> Dict[str, Any]:
+        if isinstance(raw_arguments, dict):
+            return raw_arguments
+
+        if raw_arguments is None:
+            raise ValueError("arguments is null")
+
+        if not isinstance(raw_arguments, str):
+            raise ValueError(f"arguments must be object or JSON string, got {type(raw_arguments).__name__}")
+
+        payload = raw_arguments.strip()
+        if not payload:
+            raise ValueError("arguments is empty string")
+
+        parsed: Any
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            try:
+                # Fallback for some OpenAI-compatible providers that return Python-style dict literals.
+                parsed = ast.literal_eval(payload)
+            except (SyntaxError, ValueError) as exc:
+                raise ValueError("cannot parse arguments as JSON object") from exc
+
+        if not isinstance(parsed, dict):
+            raise ValueError(f"arguments is {type(parsed).__name__}, expected object")
+
+        return parsed
 
     def _normalize_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         normalized: List[Dict[str, Any]] = []

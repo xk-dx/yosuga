@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import re
 
 from yosuga.config.policy import PolicyRules
 from yosuga.core.types import ToolCall, ToolPolicyDecision
@@ -51,6 +53,12 @@ class ToolPolicyEngine:
 
     def _decide_bash(self, call: ToolCall) -> ToolPolicyDecision:
         command = str(call.input.get("command", ""))
+        normalized_command = self._normalize_windows_mkdir_command(command)
+        command_rewritten = normalized_command != command
+        if command_rewritten:
+            call.input["command"] = normalized_command
+
+        command = normalized_command
         lower = command.lower()
 
         if any(item in lower for item in self.rules.bash_blocked_substrings):
@@ -69,7 +77,36 @@ class ToolPolicyEngine:
                 suggestion="Confirm intent and scope, and prefer a dry-run command if available.",
             )
 
+        if command_rewritten:
+            return ToolPolicyDecision(
+                action="allow",
+                code="normalized_windows_mkdir",
+                reason="Normalized Unix-style mkdir command to Windows-compatible form.",
+            )
+
         return ToolPolicyDecision(action="allow")
+
+    @staticmethod
+    def _normalize_windows_mkdir_command(command: str) -> str:
+        if os.name != "nt":
+            return command
+
+        match = re.match(r"^\s*mkdir\s+-p\s+(.+?)\s*$", command)
+        if not match:
+            return command
+
+        target_expr = match.group(1).strip()
+        brace = re.match(r"^(.*)\{([^{}]+)\}(.*)$", target_expr)
+        if not brace:
+            return f"mkdir {target_expr}"
+
+        prefix, body, suffix = brace.groups()
+        parts = [p.strip() for p in body.split(",") if p.strip()]
+        if not parts:
+            return f"mkdir {target_expr}"
+
+        expanded = [f"mkdir {prefix}{part}{suffix}" for part in parts]
+        return " && ".join(expanded)
 
     def _decide_file_ops(self, call: ToolCall) -> ToolPolicyDecision:
         path = str(call.input.get("path", ""))

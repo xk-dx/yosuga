@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import platform
+import sys
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -116,11 +118,29 @@ class InstructionComposer:
         return ("", "")
 
     def _build_runtime_workspace_block(self) -> str:
+        shell = os.getenv("SHELL") or os.getenv("ComSpec") or "unknown"
+        os_name = os.name
+        platform_name = platform.platform()
+        python_version = sys.version.split()[0]
+        path_sep = os.sep
+        is_windows = os_name == "nt"
+        command_hint = (
+            "Use Windows-compatible commands (PowerShell/cmd), avoid bash-specific syntax like brace expansion."
+            if is_windows
+            else "Use POSIX-compatible shell commands."
+        )
+
         return (
             "# Runtime Workspace\n\n"
             f"- project_root: {self.project_root}\n"
             f"- workspace_root: {self.workspace_root}\n"
-            "- Use workspace_root as the only writable code area for tool operations."
+            f"- os_name: {os_name}\n"
+            f"- platform: {platform_name}\n"
+            f"- python_version: {python_version}\n"
+            f"- shell: {shell}\n"
+            f"- path_separator: {path_sep}\n"
+            "- Use workspace_root as the only writable code area for tool operations.\n"
+            f"- {command_hint}"
         )
 
     @staticmethod
