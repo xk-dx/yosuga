@@ -1,19 +1,4 @@
-# pyright: reportMissingImports=false
-from pathlib import Path
-import sys
-
-
-ROOT = Path(__file__).resolve().parent
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-
-def _entry() -> None:
-    from yosuga.surfaces.cli.app import main
-
-    main()
-
+from src.yosuga.surfaces.cli.app import main
 
 if __name__ == "__main__":
-    _entry()
+    main()

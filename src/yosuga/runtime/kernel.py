@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List
 
 from yosuga.config.session_log import SessionLogger
 from yosuga.core.types import ModelResponse, ToolCall, ToolPolicyDecision
+from yosuga.utils.compactor import AutoCompactor, FullCompactor, MicroCompactor
 from yosuga.runtime.report import TurnReportWriter
 from yosuga.tools.runtime import ToolRegistry
 
@@ -35,6 +36,9 @@ class AgentKernel:
         self.session_logger = session_logger
         self.report_writer = report_writer
         self._turn_index = 0
+        self.micro_compactor = MicroCompactor()
+        self.auto_compactor = AutoCompactor(model)
+        self.full_compactor = FullCompactor(session_logger)
 
     def run_turn(self, user_input: str, history: List[Dict[str, Any]], on_event: EventHook | None = None) -> str:
         self._turn_index += 1
@@ -62,8 +66,62 @@ class AgentKernel:
         history.append({"role": "user", "content": user_input})
 
         for _ in range(self.max_iters):
-            response: ModelResponse = self.model.respond(history, self.tools.tool_specs())
-            model_calls += 1
+            try:
+                response: ModelResponse = self.model.respond(history, self.tools.tool_specs())
+                model_calls += 1
+            except Exception as exc:
+                if on_event:
+                    on_event(f"[compact:full] model error detected: {exc}")
+
+                history = self.full_compactor.archive_and_reset(
+                    history=history,
+                    current_turn=turn_id,
+                    user_input=user_input,
+                )
+
+                if self.session_logger:
+                    self.session_logger.log(
+                        "history_compact_full",
+                        {
+                            "turn_id": turn_id,
+                            "reason": str(exc),
+                        },
+                    )
+
+                if on_event:
+                    on_event("[compact:full] archived and restored lightweight context")
+
+                try:
+                    response = self.model.respond(history, self.tools.tool_specs())
+                    model_calls += 1
+                except Exception as retry_exc:
+                    error_text = f"Error: model failed after full compact: {retry_exc}"
+                    if self.session_logger:
+                        self.session_logger.log(
+                            "turn_complete",
+                            {
+                                "turn_id": turn_id,
+                                "answer": error_text,
+                            },
+                        )
+                    self._write_turn_report(
+                        turn_id=turn_id,
+                        user_input=user_input,
+                        answer=error_text,
+                        duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                        model_calls=model_calls,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        tool_calls=tool_calls,
+                        tool_success=tool_success,
+                        tool_failures=tool_failures,
+                        tool_retries=tool_retries,
+                        model_tool_arg_parse_errors=model_tool_arg_parse_errors,
+                        max_iters_reached=False,
+                    )
+                    return error_text
+
             usage = response.usage or {}
             prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
             completion_tokens += int(usage.get("completion_tokens", 0) or 0)
@@ -203,7 +261,71 @@ class AgentKernel:
                     }
                 )
 
+            # Apply Micro Compact before appending to history
+            compacted_history, chars_released = self.micro_compactor.compact_history(history)
+            if chars_released > 0 and on_event:
+                on_event(f"[compact:micro] released {chars_released} chars")
+            history = compacted_history
+
             history.append({"role": "user", "content": tool_results_payload})
+
+            # Apply Auto Compact when token usage is near context limit.
+            if self.auto_compactor.should_compact(usage):
+                auto_compacted_history, estimated_saved = self.auto_compactor.compact_history(history)
+                if estimated_saved > 0:
+                    history = auto_compacted_history
+                    if on_event:
+                        on_event(f"[compact:auto] estimated saved {estimated_saved} chars")
+                    if self.session_logger:
+                        self.session_logger.log(
+                            "history_compact_auto",
+                            {
+                                "turn_id": turn_id,
+                                "estimated_saved": estimated_saved,
+                            },
+                        )
+
+        # Final fallback: full compact once before giving up on max-iter exhaustion.
+        if on_event:
+            on_event("[compact:full] max iterations reached, trying one final compact-retry")
+        history = self.full_compactor.archive_and_reset(
+            history=history,
+            current_turn=turn_id,
+            user_input=user_input,
+        )
+        try:
+            final_retry_response: ModelResponse = self.model.respond(history, self.tools.tool_specs())
+            model_calls += 1
+            final_retry_text = (final_retry_response.text or "").strip()
+            if final_retry_text and not final_retry_response.tool_calls:
+                history.append({"role": "assistant", "content": final_retry_text})
+                self._write_turn_report(
+                    turn_id=turn_id,
+                    user_input=user_input,
+                    answer=final_retry_text,
+                    duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                    model_calls=model_calls,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    tool_calls=tool_calls,
+                    tool_success=tool_success,
+                    tool_failures=tool_failures,
+                    tool_retries=tool_retries,
+                    model_tool_arg_parse_errors=model_tool_arg_parse_errors,
+                    max_iters_reached=False,
+                )
+                if self.session_logger:
+                    self.session_logger.log(
+                        "turn_complete",
+                        {
+                            "turn_id": turn_id,
+                            "answer": final_retry_text,
+                        },
+                    )
+                return final_retry_text
+        except Exception:
+            pass
 
         if self.session_logger:
             self.session_logger.log(
