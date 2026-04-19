@@ -353,6 +353,11 @@ class ToolRegistry:
                     )
 
                 delay = self._backoff_delay(attempt)
+                if on_event:
+                    on_event(
+                        f"[tool:retry] {call.name} attempt {attempt}/{max_attempts - 1} "
+                        f"in {delay:.2f}s due to: {exc}"
+                    )
                 self._audit(
                     call=call,
                     decision=decision,
@@ -389,17 +394,6 @@ class ToolRegistry:
 
 def build_default_registry(root: Path) -> ToolRegistry:
     reg = ToolRegistry(root)
-
-    reg.register(
-        "echo",
-        "Echo back text.",
-        lambda text: text,
-        {
-            "type": "object",
-            "properties": {"text": {"type": "string"}},
-            "required": ["text"],
-        },
-    )
 
     def write_file(path: str, content: str, overwrite: bool = False) -> str:
         target = reg.safe_path(path)
@@ -442,18 +436,52 @@ def build_default_registry(root: Path) -> ToolRegistry:
         return "\n".join(lines) if lines else "(empty file)"
 
     def bash(command: str) -> str:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             command,
             shell=True,
             cwd=reg.root,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30,
         )
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
+        try:
+            stdout, stderr = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired as exc:
+            # On Windows, shell commands may spawn child processes that keep running.
+            # Force-kill the process tree to avoid a hanging communicate/join.
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                proc.kill()
+            try:
+                proc.communicate(timeout=2)
+            except Exception:
+                pass
+            raise TimeoutError("bash command timed out after 30s") from exc
+        except KeyboardInterrupt as exc:
+            # Treat manual interruption while waiting as retryable timeout in tool runtime.
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                proc.kill()
+            try:
+                proc.communicate(timeout=2)
+            except Exception:
+                pass
+            raise TimeoutError("bash command interrupted while waiting") from exc
+
+        stdout = stdout or ""
+        stderr = stderr or ""
         output = (stdout + stderr).strip()
         if output:
             if proc.returncode != 0:

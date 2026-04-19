@@ -33,7 +33,6 @@ class MockModel:
                 text=(
                     "Commands:\n"
                     "  help or /help\n"
-                    "  echo <text>\n"
                     "  ls [path]\n"
                     "  read <path>\n"
                     "  bash <command>\n"
@@ -48,15 +47,12 @@ class MockModel:
         return ModelResponse(
             text=(
                 "MockModel response: no tool needed. "
-                "Try: echo hello, ls ., read coding-agent-architecture-plan.md"
+                "Try: ls ., read coding-agent-architecture-plan.md"
             )
         )
 
     def _parse_tool_call(self, query: str) -> ToolCall | None:
         low = query.lower()
-
-        if low.startswith("echo "):
-            return ToolCall(id=self._id(), name="echo", input={"text": query[5:]})
 
         if low == "ls" or low.startswith("ls "):
             path = query[3:].strip() if len(query) > 2 else "."
