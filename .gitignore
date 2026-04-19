@@ -63,3 +63,4 @@ logs/
 
 # Optional local outputs
 outputs/
+**/test*.md
