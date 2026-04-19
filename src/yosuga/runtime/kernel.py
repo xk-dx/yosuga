@@ -20,7 +20,7 @@ class AgentKernel:
         self,
         model: Any,
         tools: ToolRegistry,
-        max_iters: int = 20,
+        max_iters: int = 40,
         approval_hook: ApprovalHook | None = None,
         logger: RuntimeLogger | None = None,
         report_writer: TurnReportWriter | None = None,
@@ -57,6 +57,11 @@ class AgentKernel:
         prompt_tokens = 0
         completion_tokens = 0
         total_tokens = 0
+        micro_compact_events = 0
+        micro_chars_released_total = 0
+        auto_compact_events = 0
+        auto_estimated_saved_total = 0
+        full_compact_events = 0
 
         if self.logger:
             self.logger.log_turn_user_input(turn_id=turn_id, text=user_input)
@@ -84,6 +89,7 @@ class AgentKernel:
                     current_turn=turn_id,
                     user_input=user_input,
                 )
+                full_compact_events += 1
 
                 if self.logger:
                     self.logger.log_history_compact_full(turn_id=turn_id, reason=str(exc))
@@ -120,6 +126,11 @@ class AgentKernel:
                         tool_failures=tool_failures,
                         tool_retries=tool_retries,
                         model_tool_arg_parse_errors=model_tool_arg_parse_errors,
+                        micro_compact_events=micro_compact_events,
+                        micro_chars_released_total=micro_chars_released_total,
+                        auto_compact_events=auto_compact_events,
+                        auto_estimated_saved_total=auto_estimated_saved_total,
+                        full_compact_events=full_compact_events,
                         max_iters_reached=False,
                     )
                     return error_text
@@ -192,6 +203,11 @@ class AgentKernel:
                     tool_failures=tool_failures,
                     tool_retries=tool_retries,
                     model_tool_arg_parse_errors=model_tool_arg_parse_errors,
+                    micro_compact_events=micro_compact_events,
+                    micro_chars_released_total=micro_chars_released_total,
+                    auto_compact_events=auto_compact_events,
+                    auto_estimated_saved_total=auto_estimated_saved_total,
+                    full_compact_events=full_compact_events,
                     max_iters_reached=False,
                 )
                 if self.logger:
@@ -252,6 +268,9 @@ class AgentKernel:
             compacted_history, chars_released = self.micro_compactor.compact_history(history)
             if chars_released > 0 and on_event:
                 on_event(f"[compact:micro] released {chars_released} chars")
+            if chars_released > 0:
+                micro_compact_events += 1
+                micro_chars_released_total += int(chars_released)
             history[:] = compacted_history
 
             history.append({"role": "user", "content": tool_results_payload})
@@ -261,6 +280,8 @@ class AgentKernel:
                 auto_compacted_history, estimated_saved = self.auto_compactor.compact_history(history)
                 if estimated_saved > 0:
                     history[:] = auto_compacted_history
+                    auto_compact_events += 1
+                    auto_estimated_saved_total += int(estimated_saved)
                     if on_event:
                         on_event(f"[compact:auto] estimated saved {estimated_saved} chars")
                     if self.logger:
@@ -274,8 +295,19 @@ class AgentKernel:
             current_turn=turn_id,
             user_input=user_input,
         )
+        full_compact_events += 1
         history[:] = new_history
-        try:
+        try:  # 最后一次尝试
+            history.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "System notice: max_iter limit reached. "
+                        "Please provide a direct final response now, resolve any pending tool-call context as failed/expired, "
+                        "and do not request any additional tool calls."
+                    ),
+                }
+            )
             tool_specs = self.tools.tool_specs()
             if self.logger:
                 self.logger.log_model_request(
@@ -303,6 +335,11 @@ class AgentKernel:
                     tool_failures=tool_failures,
                     tool_retries=tool_retries,
                     model_tool_arg_parse_errors=model_tool_arg_parse_errors,
+                    micro_compact_events=micro_compact_events,
+                    micro_chars_released_total=micro_chars_released_total,
+                    auto_compact_events=auto_compact_events,
+                    auto_estimated_saved_total=auto_estimated_saved_total,
+                    full_compact_events=full_compact_events,
                     max_iters_reached=False,
                 )
                 if self.logger:
@@ -327,6 +364,11 @@ class AgentKernel:
             tool_failures=tool_failures,
             tool_retries=tool_retries,
             model_tool_arg_parse_errors=model_tool_arg_parse_errors,
+            micro_compact_events=micro_compact_events,
+            micro_chars_released_total=micro_chars_released_total,
+            auto_compact_events=auto_compact_events,
+            auto_estimated_saved_total=auto_estimated_saved_total,
+            full_compact_events=full_compact_events,
             max_iters_reached=True,
         )
         return "Error: max loop iterations reached"
@@ -347,6 +389,11 @@ class AgentKernel:
         tool_failures: int,
         tool_retries: int,
         model_tool_arg_parse_errors: int,
+        micro_compact_events: int,
+        micro_chars_released_total: int,
+        auto_compact_events: int,
+        auto_estimated_saved_total: int,
+        full_compact_events: int,
         max_iters_reached: bool,
     ) -> None:
         if not self.report_writer:
@@ -371,6 +418,19 @@ class AgentKernel:
                     "success": tool_success,
                     "failures": tool_failures,
                     "retries": tool_retries,
+                },
+                "compaction": {
+                    "micro": {
+                        "events": micro_compact_events,
+                        "chars_released_total": micro_chars_released_total,
+                    },
+                    "auto": {
+                        "events": auto_compact_events,
+                        "estimated_saved_total": auto_estimated_saved_total,
+                    },
+                    "full": {
+                        "events": full_compact_events,
+                    },
                 },
                 "max_iters_reached": max_iters_reached,
             }

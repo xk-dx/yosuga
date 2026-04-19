@@ -426,14 +426,51 @@ def build_default_registry(root: Path) -> ToolRegistry:
         names = sorted([p.name + ("/" if p.is_dir() else "") for p in target.iterdir()])
         return "\n".join(names) if names else "(empty directory)"
 
-    def read_file(path: str, max_lines: int = 200) -> str:
+    def read_file(
+        path: str,
+        max_lines: int = 200,
+        start_line: int = 1,
+        end_line: int = 0,
+        include_line_numbers: bool = False,
+    ) -> str:
         target = reg.safe_path(path)
         if not target.exists() or not target.is_file():
             return f"Not a file: {path}"
+
+        try:
+            start = int(start_line)
+            end = int(end_line)
+            max_count = int(max_lines)
+        except Exception:
+            return "Invalid line arguments. start_line, end_line, and max_lines must be integers."
+
+        if start < 1:
+            return "start_line must be >= 1"
+        if max_count < 1:
+            return "max_lines must be >= 1"
+
         lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
-        if len(lines) > max_lines:
-            lines = lines[:max_lines] + [f"... ({len(lines) - max_lines} more lines)"]
-        return "\n".join(lines) if lines else "(empty file)"
+        total = len(lines)
+        if total == 0:
+            return "(empty file)"
+        if start > total:
+            return f"Start line {start} is out of range (file has {total} lines)."
+
+        if end > 0:
+            if end < start:
+                return "end_line must be >= start_line"
+            end_idx = min(total, end)
+        else:
+            end_idx = min(total, start + max_count - 1)
+
+        selected = lines[start - 1 : end_idx]
+        if include_line_numbers:
+            selected = [f"{start + i}: {line}" for i, line in enumerate(selected)]
+
+        if end_idx < total:
+            selected.append(f"... ({total - end_idx} more lines)")
+
+        return "\n".join(selected)
 
     def bash(command: str) -> str:
         proc = subprocess.Popen(
@@ -447,7 +484,7 @@ def build_default_registry(root: Path) -> ToolRegistry:
             errors="replace",
         )
         try:
-            stdout, stderr = proc.communicate(timeout=30)
+            stdout, stderr = proc.communicate(timeout=60)
         except subprocess.TimeoutExpired as exc:
             # On Windows, shell commands may spawn child processes that keep running.
             # Force-kill the process tree to avoid a hanging communicate/join.
@@ -463,7 +500,7 @@ def build_default_registry(root: Path) -> ToolRegistry:
                 proc.communicate(timeout=2)
             except Exception:
                 pass
-            raise TimeoutError("bash command timed out after 30s") from exc
+            raise TimeoutError("bash command timed out after 60s") from exc
         except KeyboardInterrupt as exc:
             # Treat manual interruption while waiting as retryable timeout in tool runtime.
             if os.name == "nt":
@@ -658,13 +695,16 @@ def build_default_registry(root: Path) -> ToolRegistry:
     )
     reg.register(
         "read_file",
-        "Read a UTF-8 text file.",
+        "Read a UTF-8 text file with optional line range.",
         read_file,
         {
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
                 "max_lines": {"type": "integer", "minimum": 1},
+                "start_line": {"type": "integer", "minimum": 1},
+                "end_line": {"type": "integer", "minimum": 0},
+                "include_line_numbers": {"type": "boolean"},
             },
             "required": ["path"],
         },

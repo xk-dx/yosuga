@@ -15,7 +15,7 @@ class CompactorConfig:
     micro_min_release_ratio: float = 0.2
     auto_token_threshold: float = 0.90
     auto_keep_recent_turns: int = 3
-    full_context_window: int = 100000
+    full_context_window: int = 20000
 
 
 class MicroCompactor:
@@ -213,6 +213,7 @@ class FullCompactor:
         tool_use_paths: Dict[str, str] = {}
         decisions = []
         tool_errors: List[str] = []
+        user_instructions: List[str] = []
         current_state = ""
         tool_result_count = 0
 
@@ -250,6 +251,9 @@ class FullCompactor:
                         for p in self._extract_paths_from_text(item_content):
                             files_touched.add(p)
             elif isinstance(content, str):
+                if msg.get("role") == "user" and len(content) > 0:
+                    # Keep recent user intent/constraints for recovery context.
+                    user_instructions.append(content[:200])
                 # Last assistant message is current state
                 if msg.get("role") == "assistant" and len(content) > 0:
                     current_state = content[:500]  # Keep first 500 chars
@@ -259,6 +263,7 @@ class FullCompactor:
             "files_touched": list(files_touched)[:20],
             "decisions": decisions[-10:],
             "tool_errors": tool_errors[-5:],
+            "user_instructions": user_instructions[-10:],
             "current_state": current_state,
             "history_length": len(history),
             "tool_result_count": tool_result_count,
@@ -271,12 +276,14 @@ class FullCompactor:
         files = key_info.get("files_touched", [])
         decisions = key_info.get("decisions", [])
         tool_errors = key_info.get("tool_errors", [])
+        user_instructions = key_info.get("user_instructions", [])
         compact_state = {
             "history_length": key_info.get("history_length", 0),
             "tool_result_count": key_info.get("tool_result_count", 0),
             "files_touched": files,
             "recent_decisions": decisions,
             "recent_tool_errors": tool_errors,
+            "recent_user_instructions": user_instructions,
             "current_state": key_info.get("current_state", ""),
         }
 
