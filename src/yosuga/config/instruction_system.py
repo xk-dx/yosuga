@@ -23,7 +23,7 @@ class PromptBuildResult:
 class InstructionComposer:
     """Compose system prompt from engineering instruction assets."""
 
-    CORE_ORDER = ["identity", "behavior", "tooling", "tone", "safety"]
+    CORE_ORDER = ["identity", "behavior", "tooling", "tone", "safety","memory"]
 
     def __init__(self, project_root: Path, workspace_root: Path, role: str = "lead"):
         self.project_root = project_root
@@ -58,7 +58,10 @@ class InstructionComposer:
         if runtime_block:
             blocks.append(runtime_block)
             sources.append("runtime:workspace-root")
-
+        memory_block, memory_source = self._load_memory_blocks()
+        if memory_block:
+            blocks.append(memory_block)
+            sources.append(memory_source)   
         skill_index_block, skill_index_source = self._build_skill_index_block()
         if skill_index_block:
             blocks.append(skill_index_block)
@@ -84,6 +87,35 @@ class InstructionComposer:
                 sources.append(str(path))
         return blocks, sources
 
+
+    def _load_memory_blocks (self) -> Tuple[str, str]:
+        """
+        尝试读取项目记忆索引文件（前200字），如存在则返回注入内容和来源。
+        如果文件不存在，则创建空的记忆文件。
+        """
+        memory_path = self.workspace_root / ".memory_yosuga" / "MEMORY.md"
+        
+        try:
+            # 确保父目录存在
+            memory_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # 如果文件不存在，创建它
+            if not memory_path.exists():
+                memory_path.touch()
+                return "", ""
+            
+            # 读取文件内容
+            text = memory_path.read_text(encoding="utf-8").strip()
+            if not text:
+                return "", ""
+            
+            snippet = text[:200]
+            block = f"# Project Memory Index (snippet)\n\n{snippet}"
+            return block, str(memory_path)
+            
+        except (IOError, OSError, UnicodeDecodeError):
+            # 统一处理文件操作相关的异常
+            return "", ""
     def _load_role_block(self, role: str) -> Tuple[str, str]:
         path = self.instructions_root / "roles" / f"{role}.md"
         text = self._read_text_if_exists(path)

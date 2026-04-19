@@ -12,3 +12,4 @@
 2. Project rules from yosuga.md
 3. User task specifics
 4. Style preferences
+
