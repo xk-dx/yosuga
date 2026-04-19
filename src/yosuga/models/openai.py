@@ -146,6 +146,7 @@ class OpenAIModel:
 
         return parsed
 
+
     def _normalize_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         normalized: List[Dict[str, Any]] = []
 

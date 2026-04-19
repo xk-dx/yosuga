@@ -5,7 +5,7 @@ from pathlib import Path
 
 from yosuga.config.policy import load_policy_rules
 from yosuga.config.paths import resolve_runtime_paths
-from yosuga.config.session_log import SessionLogger
+from yosuga.config.session_log import SessionLogger, find_latest_session_id, load_history_ckpt, save_history_ckpt
 from yosuga.core.types import ToolCall, ToolPolicyDecision
 from yosuga.models.anthropic import load_anthropic_from_env
 from yosuga.models.mock import MockModel
@@ -191,6 +191,11 @@ def main() -> None:
         default=None,
         help="Working code directory for tool operations (default: current directory)",
     )
+    parser.add_argument(
+        "--resume",
+        default="",
+        help="Resume from history checkpoint: latest or explicit session id",
+    )
     args = parser.parse_args()
 
     _print_welcome()
@@ -207,9 +212,18 @@ def main() -> None:
     os.environ["yosuga_PROJECT_ROOT"] = str(paths.project_root)
 
     policy_rules = load_policy_rules(paths.project_root)
+    resume_arg = (args.resume or "").strip()
+    resume_session_id = ""
+    if resume_arg:
+        if resume_arg.lower() == "latest":
+            resume_session_id = find_latest_session_id(paths.workspace_root, policy_rules.session_log_relative_dir) or ""
+        else:
+            resume_session_id = resume_arg
+
     session_logger = SessionLogger(
         workspace_root=paths.workspace_root,
         relative_dir=policy_rules.session_log_relative_dir,
+        session_id=resume_session_id or None,
     )
     report_writer = TurnReportWriter(session_dir=session_logger.session_dir)
     _print_runtime_summary(
@@ -229,6 +243,14 @@ def main() -> None:
     )
 
     history = []
+    recovered_turn_index = 0
+    if resume_arg:
+        history, recovered_turn_index = load_history_ckpt(session_logger.session_dir)
+        if history:
+            print(_paint(f"Recovered checkpoint: {len(history)} messages from session {session_logger.session_id}", _Color.YELLOW))
+        else:
+            print(_paint(f"Resume requested but no history.ckpt.json found for session {session_logger.session_id}", _Color.YELLOW))
+
     model = _build_model(backend=args.model)
     tools = build_default_registry(paths.workspace_root)
     kernel = AgentKernel(
@@ -238,6 +260,8 @@ def main() -> None:
         session_logger=session_logger,
         report_writer=report_writer,
     )
+    if recovered_turn_index > 0:
+        kernel.set_turn_index(recovered_turn_index)
 
     print(_paint(f"Mutation mode: {tools.get_mutation_mode()}", _Color.DIM))
 
@@ -280,5 +304,6 @@ def main() -> None:
             continue
 
         answer = kernel.run_turn(query, history, on_event=_event_printer)
+        save_history_ckpt(session_logger.session_dir, history, kernel.get_turn_index())
         print(_paint(answer, _Color.GREEN))
         print()

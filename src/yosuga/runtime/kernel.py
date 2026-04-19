@@ -40,6 +40,12 @@ class AgentKernel:
         self.auto_compactor = AutoCompactor(model)
         self.full_compactor = FullCompactor(session_logger)
 
+    def set_turn_index(self, turn_index: int) -> None:
+        self._turn_index = max(0, int(turn_index))
+
+    def get_turn_index(self) -> int:
+        return self._turn_index
+
     def run_turn(self, user_input: str, history: List[Dict[str, Any]], on_event: EventHook | None = None) -> str:
         self._turn_index += 1
         turn_id = self._turn_index
@@ -249,13 +255,19 @@ class AgentKernel:
                         },
                     )
 
+                combined_content = self._build_tool_result_content(
+                    content=result.content,
+                    error=result.error,
+                    meta=result.meta,
+                )
+
                 tool_results_payload.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": result.tool_use_id,
                         "name": result.meta.get("name", call.name),
-                        "ok": result.ok,
-                        "content": result.content,
+                        "ok": result.ok,                        
+                        "content": combined_content,
                         "error": result.error,
                         "meta": result.meta,
                     }
@@ -429,3 +441,29 @@ class AgentKernel:
             return compacted
 
         return value
+
+    def _build_tool_result_content(self, *, content: Any, error: str, meta: Dict[str, Any]) -> str:
+        parts: List[str] = []
+
+        content_text = str(content or "").strip()
+
+        if content_text:
+            parts.append(content_text)
+
+        err = (error or "").strip()
+        if err:
+            parts.append(f"error: {err}")
+
+        policy_code = str((meta or {}).get("policy_code", "")).strip()
+        if policy_code:
+            parts.append(f"policy_code: {policy_code}")
+
+        policy_reason = str((meta or {}).get("policy_reason", "")).strip()
+        if policy_reason:
+            parts.append(f"policy_reason: {policy_reason}")
+
+        policy_suggestion = str((meta or {}).get("policy_suggestion", "")).strip()
+        if policy_suggestion:
+            parts.append(f"policy_suggestion: {policy_suggestion}")
+
+        return "\n".join(parts)
