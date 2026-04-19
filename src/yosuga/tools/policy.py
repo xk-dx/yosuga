@@ -34,10 +34,29 @@ class ToolPolicyEngine:
         if call.name in {"write_file", "edit_file"}:
             return self._decide_file_ops(call)
 
+        if call.name in {"glob", "grep"}:
+            path = str(call.input.get("path", ".")).strip() or "."
+            if ".yosuga" in path or path.startswith(".yosuga"):
+                return ToolPolicyDecision(
+                    action="block",
+                    code="forbidden_system_dir",
+                    reason=f"{call.name} cannot search in .yosuga configuration directory.",
+                    suggestion="Query user workspace directories only, not system config paths.",
+                )
+            return ToolPolicyDecision(action="allow")
+
         if call.name == "bash":
             return self._decide_bash(call)
 
         if call.name == "read_file":
+            path = str(call.input.get("path", "")).strip()
+            if ".yosuga" in path or path.startswith(".yosuga"):
+                return ToolPolicyDecision(
+                    action="block",
+                    code="forbidden_system_dir",
+                    reason="Cannot read files from .yosuga configuration directory.",
+                    suggestion="Access user workspace files only.",
+                )
             max_lines = int(call.input.get("max_lines", 200) or 200)
             if max_lines > self.rules.read_file_max_lines_without_approval:
                 return ToolPolicyDecision(
@@ -50,6 +69,13 @@ class ToolPolicyEngine:
 
         if call.name == "list_dir":
             path = str(call.input.get("path", ""))
+            if ".yosuga" in path or path.startswith(".yosuga"):
+                return ToolPolicyDecision(
+                    action="block",
+                    code="forbidden_system_dir",
+                    reason="Cannot list .yosuga configuration directory.",
+                    suggestion="Access user workspace directories only.",
+                )
             if path in self.rules.list_dir_root_like_paths:
                 return ToolPolicyDecision(
                     action="ask_user",
