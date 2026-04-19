@@ -1,36 +1,8 @@
+from __future__ import annotations
+
 import json
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
-
-class SessionLogger:
-    def __init__(self, workspace_root: Path, relative_dir: str, session_id: str | None = None):
-        self.session_id = session_id or uuid.uuid4().hex
-        self._root_dir = (workspace_root / relative_dir).resolve()
-        self._root_dir.mkdir(parents=True, exist_ok=True)
-        self._session_dir = self._root_dir / self.session_id
-        self._session_dir.mkdir(parents=True, exist_ok=True)
-        self._path = self._session_dir / "session.jsonl"
-
-    @property
-    def session_dir(self) -> Path:
-        return self._session_dir
-
-    @property
-    def path(self) -> Path:
-        return self._path
-
-    def log(self, event_type: str, payload: Dict[str, Any]) -> None:
-        record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "session_id": self.session_id,
-            "event_type": event_type,
-            "payload": payload,
-        }
-        with self._path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def find_latest_session_id(workspace_root: Path, relative_dir: str) -> Optional[str]:
@@ -78,7 +50,6 @@ def load_history_ckpt(session_dir: Path) -> Tuple[List[Dict[str, Any]], int]:
     except Exception:
         turn_index = 0
 
-    # Keep only role/content pairs to avoid malformed checkpoint payloads.
     safe_history: List[Dict[str, Any]] = []
     for item in history:
         if not isinstance(item, dict):

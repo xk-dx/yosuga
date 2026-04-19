@@ -5,7 +5,7 @@ from pathlib import Path
 
 from yosuga.config.policy import load_policy_rules
 from yosuga.config.paths import resolve_runtime_paths
-from yosuga.config.session_log import SessionLogger, find_latest_session_id, load_history_ckpt, save_history_ckpt
+from yosuga.logging import RuntimeLogger, find_latest_session_id, load_history_ckpt, save_history_ckpt
 from yosuga.core.types import ToolCall, ToolPolicyDecision
 from yosuga.models.anthropic import load_anthropic_from_env
 from yosuga.models.mock import MockModel
@@ -220,7 +220,7 @@ def main() -> None:
         else:
             resume_session_id = resume_arg
 
-    session_logger = SessionLogger(
+    session_logger = RuntimeLogger(
         workspace_root=paths.workspace_root,
         relative_dir=policy_rules.session_log_relative_dir,
         session_id=resume_session_id or None,
@@ -257,7 +257,7 @@ def main() -> None:
         model=model,
         tools=tools,
         approval_hook=_approval_prompt,
-        session_logger=session_logger,
+        logger=session_logger,
         report_writer=report_writer,
     )
     if recovered_turn_index > 0:
