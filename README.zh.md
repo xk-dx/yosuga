@@ -2,11 +2,19 @@
 
 `yosuga` 是一个面向工作区的最小化编码agent。它提供 CLI 对话循环、模型后端适配、工具执行、策略控制、会话日志、回合报表，以及在系统提示词中注入技能元数据的 skills 机制。
 
+## 项目定位
+
+这个仓库是一个参考 Claude Code 思路的个人复刻项目。
+
+- 不是 Claude Code 官方实现。
+- 目标是用一个尽量小而清晰的代码库复现核心运行机制。
+- 功能覆盖是阶段性的，会持续迭代完善。
+
 ## 项目做了什么
 
 - 从当前工作区启动交互式 CLI agent。
 - 支持 OpenAI-compatible、Anthropic-compatible 和 mock 三种模型后端。
-- 提供工作区工具：`read_file`、`write_file`、`edit_file`、`list_dir`、`bash`、`list_skills`、`use_skill`。
+- 提供工作区工具：`read_file`、`write_file`、`edit_file`、`list_dir`、`bash`、`list_skills`、`use_skill`、`grep`，`glob`。
 - 在工具执行前做策略检查、用户确认、重试和熔断控制。
 - 将会话日志和每轮统计报表分开保存。
 - 启动时加载工程化系统提示词和 skills 元数据索引。
@@ -33,7 +41,7 @@ python main.py
 
 ```bash
 python main.py --model mock
-python main.py --model openai
+python main.py --model openai (推荐)
 python main.py --model anthropic
 ```
 
@@ -48,6 +56,14 @@ python main.py --workspace e:\projects\ai_project\some-workspace
 ```
 
 所有工具都会在这个工作区根目录下操作。
+## 会话恢复
+
+支持恢复特定项目会话记忆
+
+```bash
+python main.py  --workspace e:\projects\ai_project\some-workspace --resume <session_id>
+```
+
 
 ## 环境变量
 
@@ -56,7 +72,9 @@ python main.py --workspace e:\projects\ai_project\some-workspace
 可选
 - `yosuga_WORKSPACE_ROOT` - 工作区根目录，供提示词构建和运行时使用。
 - `yosuga_PROJECT_ROOT` - 项目根目录，供策略和提示词资产使用。
-- `AGENT_ROLE` - 选择要加载的角色指令。
+
+会话内角色切换：
+- 使用 `/role <name>` 在当前会话中切换角色指令（例如 `/role lead`）。
 
 必填
 - `OPENAI_API_BASE` - Anthropic API 地址。
@@ -96,7 +114,7 @@ python main.py --workspace e:\projects\ai_project\some-workspace
 
 这个项目已经可以作为一个可用的 CLI agent runtime 来运行，但整体仍在继续迭代。
 
-### 已完成
+### 已实现
 
 - 交互式 CLI 循环。
 - Anthropic、OpenAI-compatible 和 mock 三种模型适配。
@@ -104,8 +122,9 @@ python main.py --workspace e:\projects\ai_project\some-workspace
 - 策略检查、用户确认、重试和熔断。
 - 会话日志和每回合报表。
 - 系统提示词构建与 skills 元数据注入。
+- 短期记忆（会话级别上下文三级压缩）
 
-### 未完成 / 进行中
+### 未实现 / 进行中
 
 - Memory 系统（规划中）：
 	- 增加持久化记忆分层（user/session/repo）及读取/回写策略。

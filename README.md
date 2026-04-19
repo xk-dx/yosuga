@@ -1,37 +1,43 @@
 # yosuga
 
-`yosuga` is a minimal AI coding agent running for the workspace in this repository. It provides a CLI agent loop, model backends, tool execution, policy control, session logging, turn reports, and a skills system that injects metadata into the system prompt.
+`yosuga` 是一个面向工作区的最小化编码 agent。它提供 CLI 对话循环、模型后端适配、工具执行、策略控制、会话日志与回合报表，以及在系统提示词中注入 skills 元数据的机制。
 
-中文说明请见 [README.zh.md](README.zh.md).
+## 项目定位
 
-## What It Does
+这个仓库是一个参考 Claude Code 思路的个人复刻项目。
 
-- Starts an interactive CLI agent from the workspace root.
-- Supports OpenAI-compatible, Anthropic-compatible, and mock model backends.
-- Executes workspace tools such as `read_file`, `write_file`, `edit_file`, `list_dir`, `bash`, `list_skills`, and `use_skill`.
-- Applies tool policy checks, approval prompts, retry handling, and circuit breaking.
-- Writes session logs and per-turn reports to separate files.
-- Loads engineered system instructions plus skills metadata at startup.
+- 不是 Claude Code 官方实现。
+- 目标是用尽量小而清晰的代码库复现核心运行机制。
+- 功能覆盖是阶段性的，会持续迭代完善。
 
-## Project Layout
+## 当前能力
 
-- `main.py` - entry point for local execution.
-- `src/yosuga/surfaces/cli/app.py` - CLI bootstrap and interactive loop.
-- `src/yosuga/runtime/kernel.py` - turn orchestration, tool dispatch, and reporting.
-- `src/yosuga/models/` - model adapters for OpenAI, Anthropic, and mock backends.
-- `src/yosuga/tools/runtime.py` - default tool registry.
-- `src/yosuga/config/` - runtime paths, policy, session logging, skills, and system prompt composition.
-- `src/yosuga/runtime/report.py` - turn report writer.
+- 从当前工作区启动交互式 CLI agent。
+- 支持 OpenAI-compatible、Anthropic-compatible、mock 三种模型后端。
+- 提供工作区工具：`read_file`、`write_file`、`edit_file`、`list_dir`、`bash`、`list_skills`、`use_skill`、`grep`、`glob`。
+- 在工具执行前进行策略检查，支持用户确认、重试和熔断。
+- 将会话日志与每回合统计报表分开保存。
+- 支持会话内角色切换：`/role <name>`。
 
-## Quick Start
+## 目录结构
 
-Run the CLI from the repository root:
+- `main.py` - 本地运行入口。
+- `src/yosuga/surfaces/cli/app.py` - CLI 启动与交互循环。
+- `src/yosuga/runtime/kernel.py` - 回合编排、工具分发、压缩与报表写入。
+- `src/yosuga/models/` - OpenAI、Anthropic、mock 模型适配器。
+- `src/yosuga/tools/runtime.py` - 默认工具注册表。
+- `src/yosuga/config/` - 路径、策略、会话日志、skills、系统提示词构建。
+- `src/yosuga/runtime/report.py` - 回合报表写入器。
+
+## 快速开始
+
+在仓库根目录运行：
 
 ```bash
 python main.py
 ```
 
-You can also select a backend explicitly:
+也可以显式指定后端：
 
 ```bash
 python main.py --model mock
@@ -39,86 +45,106 @@ python main.py --model openai
 python main.py --model anthropic
 ```
 
-If `--model` is omitted, the launcher tries to auto-detect configured environment variables and falls back to the mock model.
+如果不传 `--model`，启动器会根据环境变量自动探测。可用时优先使用真实后端，否则回退到 mock。
 
-## Workspace Option
+## 工作区与会话
 
-By default, the current directory is treated as the workspace root. You can override it:
+默认把当前目录当作工作区根目录。你也可以手动指定：
 
 ```bash
 python main.py --workspace e:\projects\ai_project\some-workspace
 ```
 
-The workspace root is the directory the tools operate on.
+恢复已有会话：
 
-## Environment Variables
+```bash
+python main.py --workspace e:\projects\ai_project\some-workspace --resume <session_id>
+```
 
-The runtime reads the following environment variables when available:
+会话内切换角色：
 
-selectable
-- `yosuga_WORKSPACE_ROOT` - workspace root used by the prompt builder and runtime.
-- `yosuga_PROJECT_ROOT` - project root used for policy and prompt assets.
-- `AGENT_ROLE` - role used when loading instruction assets.
+```text
+/role lead
+```
 
-necessary
-- `OPENAI_API_BASE` - OpenAI-compatible API base URL.
-- `OPENAI_API_KEY` - OpenAI-compatible backend key.
-- `OPENAI_MODEL` - OpenAI-compatible model name.
-- `ANTHROPIC_API_BASE` - Anthropic API base URL.
-- `ANTHROPIC_API_KEY` - Anthropic API key.
-- `ANTHROPIC_MODEL` - Anthropic model name.
+## 环境变量
 
-The launcher will call `python-dotenv` if it is installed, so a local `.env` file can be used.
+运行时会读取以下环境变量。
 
-## Skills System
+可选：
+- `yosuga_WORKSPACE_ROOT` - 工作区根目录，供提示词构建和运行时使用。
+- `yosuga_PROJECT_ROOT` - 项目根目录，供策略和提示词资产使用。
 
-The system prompt includes a metadata-only skills index from `.yosuga/skills`. At runtime:
+必填（按所选后端提供）：
 
-1. The prompt includes a compact skills index.
-2. The model can call `list_skills` to enumerate available skills.
-3. The model can call `use_skill` to load the full `SKILL.md` content for a specific skill.
-4. Skills may expose runnable scripts that can be executed through the normal tool loop.
+OpenAI-compatible 后端：
+- `OPENAI_API_BASE` - OpenAI-compatible API 地址。
+- `OPENAI_API_KEY` - OpenAI-compatible 后端密钥。
+- `OPENAI_MODEL` - OpenAI-compatible 模型名。
 
-This keeps startup context small while still making the full skill content available on demand.
+Anthropic-compatible 后端：
+- `ANTHROPIC_API_BASE` - Anthropic API 地址。
+- `ANTHROPIC_API_KEY` - Anthropic API 密钥。
+- `ANTHROPIC_MODEL` - Anthropic 模型名。
 
-## Logging and Reports
+如果安装了 `python-dotenv`，启动器会自动尝试加载 `.env` 文件。
 
-Each session gets its own directory containing:
+## Skills 机制
 
-- `session.jsonl` for session events.
-- `report.jsonl` for per-turn metrics.
+系统提示词会注入来自 `.yosuga/skills` 的技能元数据索引。运行时流程：
 
-The report currently tracks model calls, token usage, tool success and failure counts, retry counts, and model-side tool-argument validation errors.
+1. 启动时只加载简洁的技能索引。
+2. 模型需要时调用 `list_skills` 查看技能列表。
+3. 模型调用 `use_skill` 读取某个技能的完整 `SKILL.md`。
+4. 技能中的脚本通过正常工具流程执行。
 
-## Policy and Safety
+这样可以减少启动上下文的 token 占用，同时保留完整技能文档的按需加载能力。
 
-Tool calls are filtered through policy rules before execution. Some calls may require user approval, and repeated tool failures can temporarily open a circuit breaker for that tool.
+## 日志与报表
 
-## Status
+每个会话都会生成独立目录，典型结构如下：
 
-The codebase is usable as a working CLI agent runtime, but it is still evolving.
+```text
+.yosuga/projects/<project_id>/session/<session_id>/
+```
 
-### Completed
+其中包含：
 
-- Interactive CLI loop.
-- Model adapters for Anthropic, OpenAI-compatible, and mock backends.
-- Tool registry with file, directory, shell, and skills tools.
-- Policy checks, approval prompts, retries, and circuit breaking.
-- Session logging and per-turn reporting.
-- System prompt composition with skills metadata injection.
+- `session.jsonl` - 会话事件日志。
+- `report.jsonl` - 每回合统计报表。
+- `history.ckpt.json` - 会话恢复所需的历史快照。
 
-### Unfinished / In Progress
+## 策略与安全
 
-- Memory system (planned):
-	- Add persistent memory scopes (user/session/repo) with retrieval and write-back policies.
-	- Integrate memory recall into turn planning and system prompt assembly.
-	- Add memory safety rules (redaction, size limits, conflict handling).
-- Multi-agent system (planned):
-	- Add coordinator-worker orchestration for decomposition and parallel task execution.
-	- Define agent roles, handoff protocol, and shared context contract.
-	- Add aggregation and conflict resolution for multi-agent outputs.
+所有工具调用都会先经过策略规则检查。部分调用会要求用户确认；如果某个工具连续失败过多，会暂时进入熔断状态。
 
-## Notes
+## 当前状态
 
-- The workspace is intended to stay writable only within the configured workspace root.
-- The project name used in code and runtime output is `yosuga`.
+这个项目已可作为可用的 CLI agent runtime 运行，但整体仍在持续迭代。
+
+### 已实现
+
+- 交互式 CLI 循环。
+- Anthropic、OpenAI-compatible、mock 三种模型适配。
+- 文件、目录、shell、skills 工具注册。
+- 策略检查、用户确认、重试、熔断。
+- 会话日志与每回合报表。
+- 系统提示词构建与 skills 元数据注入。
+- 会话级短期记忆压缩（micro/auto/full）。
+
+### 未实现 / 进行中
+
+Memory 系统（规划中）：
+- 增加持久化记忆分层（user/session/repo）及读取/回写策略。
+- 将记忆召回接入回合规划与系统提示词构建流程。
+- 增加记忆安全规则（脱敏、容量限制、冲突处理）。
+
+Multi-Agent 系统（规划中）：
+- 增加 coordinator-worker 编排，用于任务拆解与并行执行。
+- 定义 agent 角色、交接协议与共享上下文契约。
+- 增加多 agent 输出的聚合与冲突消解机制。
+
+## 备注
+
+- 工作区默认只允许在配置好的根目录内写入。
+- 项目运行时统一使用 `yosuga` 作为命名。

@@ -179,11 +179,13 @@ class InstructionComposer:
         return path.read_text(encoding="utf-8").strip()
 
 
-def load_engineered_system_prompt(workspace_root: Path | None = None) -> PromptBuildResult:
+def load_engineered_system_prompt(
+    workspace_root: Path | None = None,
+    role: str = "lead",
+) -> PromptBuildResult:
     project_root = default_project_root()
     resolved_workspace = workspace_root or Path(os.getenv("yosuga_WORKSPACE_ROOT", "") or Path.cwd())
     resolved_workspace = resolved_workspace.resolve()
-    role = os.getenv("AGENT_ROLE", "lead")
     composer = InstructionComposer(
         project_root=project_root,
         workspace_root=resolved_workspace,

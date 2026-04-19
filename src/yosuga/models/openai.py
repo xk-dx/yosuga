@@ -218,7 +218,7 @@ class OpenAIModel:
         }
 
 
-def load_openai_from_env() -> OpenAIModel:
+def load_openai_from_env(*, workspace_root: Any | None = None, role: str = "lead") -> OpenAIModel:
     api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").strip()
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     model = os.getenv("OPENAI_MODEL", "gpt-4").strip()
@@ -232,5 +232,5 @@ def load_openai_from_env() -> OpenAIModel:
         api_base=api_base,
         api_key=api_key,
         model=model,
-        system_prompt=load_engineered_system_prompt().prompt,
+        system_prompt=load_engineered_system_prompt(workspace_root=workspace_root, role=role).prompt,
     )

@@ -86,7 +86,7 @@ class AnthropicModel:
         return normalized
 
 
-def load_anthropic_from_env() -> AnthropicModel:
+def load_anthropic_from_env(*, workspace_root: Any | None = None, role: str = "lead") -> AnthropicModel:
     api_base = os.getenv("ANTHROPIC_API_BASE", "").strip()
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     model = os.getenv("ANTHROPIC_MODEL", "").strip()
@@ -106,5 +106,5 @@ def load_anthropic_from_env() -> AnthropicModel:
         api_base=api_base,
         api_key=api_key,
         model=model,
-        system_prompt=load_engineered_system_prompt().prompt,
+        system_prompt=load_engineered_system_prompt(workspace_root=workspace_root, role=role).prompt,
     )

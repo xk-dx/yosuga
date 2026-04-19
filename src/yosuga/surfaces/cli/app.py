@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 
+from yosuga.config.instruction_system import load_engineered_system_prompt
 from yosuga.config.policy import load_policy_rules
 from yosuga.config.paths import resolve_runtime_paths
 from yosuga.logging import RuntimeLogger, find_latest_session_id, load_history_ckpt, save_history_ckpt
@@ -73,6 +74,7 @@ def _print_help() -> None:
     print(_paint("  /mutate allow                   Allow write/edit without prompt", _Color.BLUE))
     print(_paint("  /mutate confirm                 Require approval before write/edit", _Color.BLUE))
     print(_paint("  /mutate block                   Block write/edit", _Color.BLUE))
+    print(_paint("  /role <name>                    Switch session role instructions", _Color.BLUE))
     print(_paint("  exit | quit | q                 Exit", _Color.BLUE))
     print()
 
@@ -126,13 +128,13 @@ def _approval_prompt(call: ToolCall, decision: ToolPolicyDecision) -> str:
     return command_hint
 
 
-def _build_model(backend: str | None = None):
+def _build_model(backend: str | None = None, *, workspace_root: Path, role: str):
     anthropic_keys = ("ANTHROPIC_API_BASE", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL")
     openai_keys = ("OPENAI_API_KEY", "OPENAI_MODEL")
 
     if backend == "anthropic":
         try:
-            model = load_anthropic_from_env()
+            model = load_anthropic_from_env(workspace_root=workspace_root, role=role)
             print(_paint("Model backend: Anthropic", _Color.GREEN))
             print(_paint(f"Model: {os.getenv('ANTHROPIC_MODEL')}", _Color.GREEN))
             return model
@@ -142,7 +144,7 @@ def _build_model(backend: str | None = None):
 
     if backend == "openai":
         try:
-            model = load_openai_from_env()
+            model = load_openai_from_env(workspace_root=workspace_root, role=role)
             print(_paint("Model backend: OpenAI", _Color.GREEN))
             print(_paint(f"Model: {os.getenv('OPENAI_MODEL')}", _Color.GREEN))
             return model
@@ -156,7 +158,7 @@ def _build_model(backend: str | None = None):
 
     if all(os.getenv(k, "").strip() for k in anthropic_keys):
         try:
-            model = load_anthropic_from_env()
+            model = load_anthropic_from_env(workspace_root=workspace_root, role=role)
             print(_paint("Model backend: Anthropic", _Color.GREEN))
             print(_paint(f"Model: {os.getenv('ANTHROPIC_MODEL')}", _Color.GREEN))
             return model
@@ -165,7 +167,7 @@ def _build_model(backend: str | None = None):
 
     if all(os.getenv(k, "").strip() for k in openai_keys):
         try:
-            model = load_openai_from_env()
+            model = load_openai_from_env(workspace_root=workspace_root, role=role)
             print(_paint("Model backend: OpenAI", _Color.GREEN))
             print(_paint(f"Model: {os.getenv('OPENAI_MODEL')}", _Color.GREEN))
             return model
@@ -251,7 +253,8 @@ def main() -> None:
         else:
             print(_paint(f"Resume requested but no history.ckpt.json found for session {session_logger.session_id}", _Color.YELLOW))
 
-    model = _build_model(backend=args.model)
+    current_role = "lead"
+    model = _build_model(backend=args.model, workspace_root=paths.workspace_root, role=current_role)
     tools = build_default_registry(paths.workspace_root, state_root=paths.state_root)
     kernel = AgentKernel(
         model=model,
@@ -295,6 +298,25 @@ def main() -> None:
                     print(_paint(f"Mutation mode set to: {tools.get_mutation_mode()}", _Color.YELLOW))
                 except ValueError as exc:
                     print(_paint(str(exc), _Color.RED))
+                continue
+
+            if cmd.startswith("/role"):
+                parts = cmd.split(maxsplit=1)
+                if len(parts) != 2 or not parts[1].strip():
+                    print(_paint("Usage: /role <name>", _Color.YELLOW))
+                    continue
+                new_role = parts[1].strip().lower()
+                try:
+                    prompt = load_engineered_system_prompt(
+                        workspace_root=paths.workspace_root,
+                        role=new_role,
+                    )
+                    if hasattr(model, "system_prompt"):
+                        model.system_prompt = prompt.prompt
+                    current_role = new_role
+                    print(_paint(f"Role switched to: {current_role}", _Color.YELLOW))
+                except Exception as exc:
+                    print(_paint(f"Failed to switch role: {exc}", _Color.RED))
                 continue
 
             print(_paint("Unknown command. Use /help", _Color.YELLOW))
