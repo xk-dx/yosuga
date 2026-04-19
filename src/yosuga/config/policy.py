@@ -13,8 +13,8 @@ class PolicyRules:
     bash_risky_substrings: List[str] = field(default_factory=list)
     read_file_max_lines_without_approval: int = 1000
     list_dir_root_like_paths: List[str] = field(default_factory=list)
-    audit_log_relative_path: str = ".yosuga/policy_audit.jsonl"
-    session_log_relative_dir: str = ".yosuga/sessions"
+    audit_log_relative_path: str = "policy_audit.jsonl"
+    session_log_relative_dir: str = ""
     tool_max_retries: int = 2
     tool_backoff_base_seconds: float = 0.5
     tool_backoff_max_seconds: float = 4.0
@@ -59,8 +59,8 @@ def load_policy_rules(project_root: Path) -> PolicyRules:
         bash_risky_substrings=[str(x).lower() for x in bash.get("risky_substrings", [])],
         read_file_max_lines_without_approval=int(read_file.get("max_lines_without_approval", 1000)),
         list_dir_root_like_paths=[str(x) for x in list_dir.get("root_like_paths", [])],
-        audit_log_relative_path=str(audit.get("log_relative_path", ".yosuga/policy_audit.jsonl")),
-        session_log_relative_dir=str(session.get("log_relative_dir", ".yosuga/sessions")),
+        audit_log_relative_path=str(audit.get("log_relative_path", "policy_audit.jsonl")),
+        session_log_relative_dir=str(session.get("log_relative_dir", "")),
         tool_max_retries=int(tool_resilience.get("max_retries", 2)),
         tool_backoff_base_seconds=float(tool_resilience.get("backoff_base_seconds", 0.5)),
         tool_backoff_max_seconds=float(tool_resilience.get("backoff_max_seconds", 4.0)),
@@ -73,8 +73,8 @@ def load_policy_rules(project_root: Path) -> PolicyRules:
 
 
 class PolicyAuditLogger:
-    def __init__(self, workspace_root: Path, relative_path: str):
-        self._path = (workspace_root / relative_path).resolve()
+    def __init__(self, state_root: Path, relative_path: str):
+        self._path = (state_root / relative_path).resolve()
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     @property

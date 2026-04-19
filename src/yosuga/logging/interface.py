@@ -15,13 +15,13 @@ class RuntimeLogger:
     def __init__(
         self,
         *,
-        workspace_root: Path,
+        state_root: Path,
         relative_dir: str,
         model: Any | None = None,
         session_id: str | None = None,
         config: LogCompactConfig | None = None,
     ):
-        self._store = SessionStore(workspace_root=workspace_root, relative_dir=relative_dir, session_id=session_id)
+        self._store = SessionStore(state_root=state_root, relative_dir=relative_dir, session_id=session_id)
         self._executor = JsonlLogExecutor(self._store)
         self._compactor = LogCompactionService(config=config)
         self._payload_service = LogPayloadService(compactor=self._compactor)

@@ -216,12 +216,12 @@ def main() -> None:
     resume_session_id = ""
     if resume_arg:
         if resume_arg.lower() == "latest":
-            resume_session_id = find_latest_session_id(paths.workspace_root, policy_rules.session_log_relative_dir) or ""
+            resume_session_id = find_latest_session_id(paths.state_root, policy_rules.session_log_relative_dir) or ""
         else:
             resume_session_id = resume_arg
 
     session_logger = RuntimeLogger(
-        workspace_root=paths.workspace_root,
+        state_root=paths.state_root,
         relative_dir=policy_rules.session_log_relative_dir,
         session_id=resume_session_id or None,
     )
@@ -252,7 +252,7 @@ def main() -> None:
             print(_paint(f"Resume requested but no history.ckpt.json found for session {session_logger.session_id}", _Color.YELLOW))
 
     model = _build_model(backend=args.model)
-    tools = build_default_registry(paths.workspace_root)
+    tools = build_default_registry(paths.workspace_root, state_root=paths.state_root)
     kernel = AgentKernel(
         model=model,
         tools=tools,

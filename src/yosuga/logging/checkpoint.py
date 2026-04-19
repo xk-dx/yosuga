@@ -5,8 +5,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-def find_latest_session_id(workspace_root: Path, relative_dir: str) -> Optional[str]:
-    root = (workspace_root / relative_dir).resolve()
+def resolve_sessions_root(state_root: Path, relative_dir: str) -> Path:
+    rel = str(relative_dir or "").strip()
+    if rel in {"", ".", "./"}:
+        return state_root.resolve()
+    return (state_root / rel).resolve()
+
+
+def find_latest_session_id(state_root: Path, relative_dir: str) -> Optional[str]:
+    root = resolve_sessions_root(state_root, relative_dir)
     if not root.exists() or not root.is_dir():
         return None
 

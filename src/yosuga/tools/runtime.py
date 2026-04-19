@@ -23,6 +23,7 @@ class ToolRegistry:
     def __init__(
         self,
         root: Path,
+        state_root: Optional[Path] = None,
         policy_rules: Optional[PolicyRules] = None,
         policy_audit_logger: Optional[PolicyAuditLogger] = None,
     ):
@@ -32,7 +33,7 @@ class ToolRegistry:
         self.policy_rules = policy_rules or load_policy_rules(project_root)
         self.skill_catalog = SkillCatalog(workspace_root=self.root, project_root=project_root)
         self.policy_audit_logger = policy_audit_logger or PolicyAuditLogger(
-            workspace_root=self.root,
+            state_root=(state_root or self.root),
             relative_path=self.policy_rules.audit_log_relative_path,
         )
         self._policy_engine = ToolPolicyEngine(workspace_root=self.root, rules=self.policy_rules)
@@ -392,8 +393,8 @@ class ToolRegistry:
         return path
 
 
-def build_default_registry(root: Path) -> ToolRegistry:
-    reg = ToolRegistry(root)
+def build_default_registry(root: Path, state_root: Optional[Path] = None) -> ToolRegistry:
+    reg = ToolRegistry(root, state_root=state_root)
 
     def write_file(path: str, content: str, overwrite: bool = False) -> str:
         target = reg.safe_path(path)

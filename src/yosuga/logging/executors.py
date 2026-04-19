@@ -8,9 +8,9 @@ from typing import Any, Dict
 
 
 class SessionStore:
-    def __init__(self, workspace_root: Path, relative_dir: str, session_id: str | None = None):
+    def __init__(self, state_root: Path, relative_dir: str, session_id: str | None = None):
         self.session_id = session_id or uuid.uuid4().hex
-        self.root_dir = (workspace_root / relative_dir).resolve()
+        self.root_dir = (state_root / relative_dir).resolve()
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.session_dir = self.root_dir / self.session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
