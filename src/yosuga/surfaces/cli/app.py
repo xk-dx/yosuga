@@ -2,18 +2,12 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
-from yosuga.config.instruction_system import load_engineered_system_prompt
-from yosuga.config.policy import load_policy_rules
-from yosuga.config.paths import resolve_runtime_paths
-from yosuga.logging import RuntimeLogger, find_latest_session_id, load_history_ckpt, save_history_ckpt
+from yosuga.config.runtime_config import RuntimeConfig
+from yosuga.logging import find_latest_session_id, load_history_ckpt, save_history_ckpt
 from yosuga.core.types import ToolCall, ToolPolicyDecision
-from yosuga.models.anthropic import load_anthropic_from_env
-from yosuga.models.mock import MockModel
-from yosuga.models.openai import load_openai_from_env
 from yosuga.runtime.kernel import AgentKernel
-from yosuga.runtime.report import TurnReportWriter
-from yosuga.tools.runtime import build_default_registry
 
 
 class _Color:
@@ -85,6 +79,7 @@ def _print_runtime_summary(
     session_id: str,
     session_log_path: Path,
     session_report_path: Path,
+    config: Optional["RuntimeConfig"] = None,
 ) -> None:
     print(_paint("Runtime", _Color.BOLD + _Color.BLUE))
     print(_paint(f"  Project root : {project_root}", _Color.BLUE))
@@ -128,55 +123,19 @@ def _approval_prompt(call: ToolCall, decision: ToolPolicyDecision) -> str:
     return command_hint
 
 
-def _build_model(backend: str | None = None, *, workspace_root: Path, role: str):
-    anthropic_keys = ("ANTHROPIC_API_BASE", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL")
-    openai_keys = ("OPENAI_API_KEY", "OPENAI_MODEL")
+def _build_model(config: RuntimeConfig, backend: str | None = None):
+    """Build model using RuntimeConfig for unified initialization."""
+    effective_backend = backend or config.model_backend
 
-    if backend == "anthropic":
-        try:
-            model = load_anthropic_from_env(workspace_root=workspace_root, role=role)
-            print(_paint("Model backend: Anthropic", _Color.GREEN))
-            print(_paint(f"Model: {os.getenv('ANTHROPIC_MODEL')}", _Color.GREEN))
-            return model
-        except Exception as exc:
-            print(_paint(f"Error: {exc}", _Color.RED), file=sys.stderr)
-            sys.exit(1)
-
-    if backend == "openai":
-        try:
-            model = load_openai_from_env(workspace_root=workspace_root, role=role)
-            print(_paint("Model backend: OpenAI", _Color.GREEN))
-            print(_paint(f"Model: {os.getenv('OPENAI_MODEL')}", _Color.GREEN))
-            return model
-        except Exception as exc:
-            print(_paint(f"Error: {exc}", _Color.RED), file=sys.stderr)
-            sys.exit(1)
-
-    if backend == "mock":
-        print(_paint("Model backend: MockModel", _Color.GREEN))
-        return MockModel()
-
-    if all(os.getenv(k, "").strip() for k in anthropic_keys):
-        try:
-            model = load_anthropic_from_env(workspace_root=workspace_root, role=role)
-            print(_paint("Model backend: Anthropic", _Color.GREEN))
-            print(_paint(f"Model: {os.getenv('ANTHROPIC_MODEL')}", _Color.GREEN))
-            return model
-        except Exception as exc:
-            print(_paint(f"Failed to initialize Anthropic model: {exc}", _Color.RED))
-
-    if all(os.getenv(k, "").strip() for k in openai_keys):
-        try:
-            model = load_openai_from_env(workspace_root=workspace_root, role=role)
-            print(_paint("Model backend: OpenAI", _Color.GREEN))
-            print(_paint(f"Model: {os.getenv('OPENAI_MODEL')}", _Color.GREEN))
-            return model
-        except Exception as exc:
-            print(_paint(f"Failed to initialize OpenAI model: {exc}", _Color.RED))
-
-    print(_paint("Model backend: MockModel (fallback)", _Color.YELLOW))
-    print(_paint("Usage: python main.py --model [anthropic|openai|mock]", _Color.DIM))
-    return MockModel()
+    try:
+        model = config.create_model()
+        model_info = config.get_model_info()
+        print(_paint(f"Model backend: {model_info['backend'].capitalize()}", _Color.GREEN))
+        print(_paint(f"Model: {model_info['model']}", _Color.GREEN))
+        return model
+    except Exception as exc:
+        print(_paint(f"Error: {exc}", _Color.RED), file=sys.stderr)
+        sys.exit(1)
 
 
 def main() -> None:
@@ -204,33 +163,33 @@ def main() -> None:
 
     try:
         from dotenv import load_dotenv
-
         load_dotenv()
     except Exception:
         pass
 
-    paths = resolve_runtime_paths(workspace_arg=args.workspace)
-    os.environ["yosuga_WORKSPACE_ROOT"] = str(paths.workspace_root)
-    os.environ["yosuga_PROJECT_ROOT"] = str(paths.project_root)
+    # Use RuntimeConfig for unified initialization
+    config = RuntimeConfig(
+        workspace_root=Path(args.workspace) if args.workspace else None,
+        model_backend=args.model,
+        role="lead"
+    )
 
-    policy_rules = load_policy_rules(paths.project_root)
+    # Handle session resume
     resume_arg = (args.resume or "").strip()
     resume_session_id = ""
     if resume_arg:
         if resume_arg.lower() == "latest":
-            resume_session_id = find_latest_session_id(paths.state_root, policy_rules.session_log_relative_dir) or ""
+            resume_session_id = find_latest_session_id(config.state_root, config.policy_rules.session_log_relative_dir) or ""
         else:
             resume_session_id = resume_arg
 
-    session_logger = RuntimeLogger(
-        state_root=paths.state_root,
-        relative_dir=policy_rules.session_log_relative_dir,
-        session_id=resume_session_id or None,
-    )
-    report_writer = TurnReportWriter(session_dir=session_logger.session_dir)
+    # Create components using RuntimeConfig
+    session_logger = config.create_logger(session_id=resume_session_id or None)
+    report_writer = config.create_report_writer(session_logger.session_dir)
+
     _print_runtime_summary(
-        project_root=paths.project_root,
-        workspace_root=paths.workspace_root,
+        project_root=config.project_root,
+        workspace_root=config.workspace_root,
         session_id=session_logger.session_id,
         session_log_path=session_logger.path,
         session_report_path=report_writer.path,
@@ -238,8 +197,8 @@ def main() -> None:
     session_logger.log(
         "session_start",
         {
-            "project_root": str(paths.project_root),
-            "workspace_root": str(paths.workspace_root),
+            "project_root": str(config.project_root),
+            "workspace_root": str(config.workspace_root),
             "model_backend": args.model or "auto",
         },
     )
@@ -253,9 +212,10 @@ def main() -> None:
         else:
             print(_paint(f"Resume requested but no history.ckpt.json found for session {session_logger.session_id}", _Color.YELLOW))
 
+    # Create model and tools using RuntimeConfig
     current_role = "lead"
-    model = _build_model(backend=args.model, workspace_root=paths.workspace_root, role=current_role)
-    tools = build_default_registry(paths.workspace_root, state_root=paths.state_root)
+    model = _build_model(config, backend=args.model)
+    tools = config.create_tools()
     kernel = AgentKernel(
         model=model,
         tools=tools,
@@ -307,12 +267,10 @@ def main() -> None:
                     continue
                 new_role = parts[1].strip().lower()
                 try:
-                    prompt = load_engineered_system_prompt(
-                        workspace_root=paths.workspace_root,
-                        role=new_role,
-                    )
+                    config.switch_role(new_role)
+                    prompt = config.load_system_prompt(new_role)
                     if hasattr(model, "system_prompt"):
-                        model.system_prompt = prompt.prompt
+                        model.system_prompt = prompt
                     current_role = new_role
                     print(_paint(f"Role switched to: {current_role}", _Color.YELLOW))
                 except Exception as exc:
