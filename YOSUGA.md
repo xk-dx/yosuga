@@ -1,0 +1,4 @@
+## 文件结构摘要报告 **工作区**: `E:\projects\ai_project\yosuga` 
+### 统计概览 | 类别 | 数量 | |------|------| | 总条目（含.git） | 750 | | 总条目（不含.git） | 224 | | 文件数 | 173 | | 目录数 | 51 | 
+### 根目录结构 ``` yosuga/ ├── .git/ # Git 仓库 ├── .gitignore ├── .memory_yosuga/ # 记忆系统 ├── .yosuga/ # 系统配置 ├── README.en.md ├── README.md ├── README.zh.md ├── debug_usage.py ├── main.py ├── multiagent.md ├── src/ # 源代码 │ └── yosuga/ │ ├── __main__.py │ ├── config/ # 配置模块 (6 files) │ ├── core/ # 核心类型 (1 file) │ ├── instructions/ # 指令系统 │ ├── logging/ # 日志模块 │ ├── models/ # 数据模型 │ ├── runtime/ # 运行时 │ ├── surfaces/ # 界面层 │ ├── tools/ # 工具模块 (3 files) │ └── utils/ # 工具函数 ├── test/ # 测试目录 │ └── test_api.py ├── test3/ # 其他测试目录 ├── test_cli_refactor.py ├── test_compactor.py ├── test_compactor_issue.py ├── test_file.md └── test_runtime_config.py ``` 
+### 主要模块说明 - **src/yosuga/**: 主代码库，包含配置、核心类型、指令系统、日志、模型、运行时、界面和工具 - **test/**: 单元测试 - **.memory_yosuga/**: 记忆系统存储 - **.yosuga/**: 系统配置和审计日志"

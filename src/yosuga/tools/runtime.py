@@ -393,7 +393,7 @@ class ToolRegistry:
         return path
 
 
-def build_default_registry(root: Path, state_root: Optional[Path] = None) -> ToolRegistry:
+def build_default_registry(root: Path, state_root: Optional[Path] = None, include_spawn_subagent: bool = False) -> ToolRegistry:
     reg = ToolRegistry(root, state_root=state_root)
 
     def write_file(path: str, content: str, overwrite: bool = False) -> str:
@@ -773,5 +773,15 @@ def build_default_registry(root: Path, state_root: Optional[Path] = None) -> Too
             "required": ["command"],
         },
     )
+
+    # Register spawn_subagent if requested (for parent agent)
+    if include_spawn_subagent:
+        from yosuga.tools.subagent import spawn_subagent, SPAWN_SUBAGENT_SPEC
+        reg.register(
+            SPAWN_SUBAGENT_SPEC["name"],
+            SPAWN_SUBAGENT_SPEC["description"],
+            spawn_subagent,
+            SPAWN_SUBAGENT_SPEC["input_schema"],
+        )
 
     return reg

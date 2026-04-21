@@ -20,7 +20,7 @@ class AgentKernel:
         self,
         model: Any,
         tools: ToolRegistry,
-        max_iters: int = 40,
+        max_iters: int = 200,
         approval_hook: ApprovalHook | None = None,
         logger: RuntimeLogger | None = None,
         report_writer: TurnReportWriter | None = None,

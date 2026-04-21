@@ -215,7 +215,9 @@ def main() -> None:
     # Create model and tools using RuntimeConfig
     current_role = "lead"
     model = _build_model(config, backend=args.model)
-    tools = config.create_tools()
+    # Create tools with spawn_subagent enabled for the main agent
+    tools = config.create_tools(include_spawn_subagent=True)
+
     kernel = AgentKernel(
         model=model,
         tools=tools,

@@ -124,16 +124,22 @@ class RuntimeConfig:
         # Fallback to mock
         return MockModel()
 
-    def create_tools(self) -> ToolRegistry:
+    def create_tools(self, include_spawn_subagent: bool = False) -> ToolRegistry:
         """
         Create tool registry with workspace and policy configuration.
+
+        Args:
+            include_spawn_subagent: If True, register the spawn_subagent tool
+                for multi-agent scenarios. Default is False for subagents
+                to prevent recursive spawning.
 
         Returns:
             Configured ToolRegistry instance
         """
         return build_default_registry(
             root=self.workspace_root,
-            state_root=self.state_root
+            state_root=self.state_root,
+            include_spawn_subagent=include_spawn_subagent
         )
 
     def create_logger(self, session_id: Optional[str] = None) -> RuntimeLogger:

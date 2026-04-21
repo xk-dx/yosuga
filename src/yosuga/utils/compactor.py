@@ -14,7 +14,7 @@ class CompactorConfig:
     micro_threshold_chars: int = 3000
     micro_min_release_ratio: float = 0.2
     auto_token_threshold: float = 0.90
-    auto_keep_recent_turns: int = 3
+    auto_keep_recent_turns: int = 5
     full_context_window: int = 20000
 
 
@@ -120,9 +120,10 @@ class AutoCompactor:
 
         # Extract turns to summarize
         num_to_summarize = len(history) - self.config.auto_keep_recent_turns
+        # Ensure we don't split between tool_use and tool_result pairs
+        num_to_summarize = self._find_safe_split_point(history, num_to_summarize)
         middle_turns = history[:num_to_summarize]
         recent_turns = history[num_to_summarize:]
-
         # Build summarization prompt
         summary_prompt = self._build_summary_prompt(middle_turns)
 
@@ -130,7 +131,7 @@ class AutoCompactor:
         try:
             summary_response = self.model.respond(
                 [{"role": "user", "content": summary_prompt}],
-                tool_specs=[],
+                tools=[],
             )
             summary_text = (summary_response.text or "").strip()
             if not summary_text:
@@ -160,6 +161,50 @@ class AutoCompactor:
         )
 
         return compacted, estimated_saved
+
+    def _find_safe_split_point(self, history: List[Dict[str, Any]], target_idx: int) -> int:
+        """
+        Find a safe split point that doesn't break tool_use/tool_result pairs.
+        
+        If target_idx points to a message that is a tool_result (following an assistant
+        message with tool_calls), or an assistant with tool_use (followed by tool_result),
+        we need to move the split point earlier to include the full pair.
+        """
+        if target_idx <= 0 or target_idx >= len(history):
+            return target_idx
+        
+        while target_idx > 0:
+            msg = history[target_idx]
+            prev_msg = history[target_idx - 1] if target_idx > 0 else None
+            next_msg = history[target_idx + 1] if target_idx + 1 < len(history) else None
+            
+            # Check if current message is a tool_result and previous is assistant with tool_use
+            is_tool_result = (
+                msg.get("role") == "user" and isinstance(msg.get("content"), list)
+                and any(isinstance(item, dict) and item.get("type") == "tool_result" for item in msg.get("content", []))
+            )
+            prev_has_tool_use = (
+                prev_msg and prev_msg.get("role") == "assistant" and isinstance(prev_msg.get("content"), list)
+                and any(isinstance(item, dict) and item.get("type") == "tool_use" for item in prev_msg.get("content", []))
+            )
+            
+            # Check if current message is assistant with tool_use and next is tool_result
+            is_assistant_with_tool_use = (
+                msg.get("role") == "assistant" and isinstance(msg.get("content"), list)
+                and any(isinstance(item, dict) and item.get("type") == "tool_use" for item in msg.get("content", []))
+            )
+            next_has_tool_result = (
+                next_msg and next_msg.get("role") == "user" and isinstance(next_msg.get("content"), list)
+                and any(isinstance(item, dict) and item.get("type") == "tool_result" for item in next_msg.get("content", []))
+            )
+            
+            # If we're at an unsafe point, move back one position
+            if (is_tool_result and prev_has_tool_use) or (is_assistant_with_tool_use and next_has_tool_result):
+                target_idx -= 1
+            else:
+                break
+        
+        return target_idx
 
     def _build_summary_prompt(self, turns: List[Dict[str, Any]]) -> str:
         """Build prompt for LLM summarization."""
